@@ -3,16 +3,16 @@ set -euo pipefail
 
 # Run from the Papan repository root. On Windows, use MSYS2 MINGW64.
 root=$(pwd)
-tar_options=()
+tar_options=(-x)
 case "$(uname -s)" in
   MINGW*|MSYS*) root=$(cygpath -u "$root"); tar_options+=(--force-local) ;;
 esac
 work="$root/build/ffmpeg"
 prefix="$work/install"
 mkdir -p "$work/x264" "$work/ffmpeg" "$work/dav1d" "$prefix"
-tar "${tar_options[@]}" -xf "$root/vendor/native-source/x264-baee400.tar.gz" -C "$work/x264" --strip-components=1
-tar "${tar_options[@]}" -xf "$root/vendor/native-source/ffmpeg-7.0.2.tar.xz" -C "$work/ffmpeg" --strip-components=1
-tar "${tar_options[@]}" -xf "$root/vendor/native-source/dav1d-1.4.2.tar.gz" -C "$work/dav1d" --strip-components=1
+tar "${tar_options[@]}" -f "$root/vendor/native-source/x264-baee400.tar.gz" -C "$work/x264" --strip-components=1
+tar "${tar_options[@]}" -f "$root/vendor/native-source/ffmpeg-7.0.2.tar.xz" -C "$work/ffmpeg" --strip-components=1
+tar "${tar_options[@]}" -f "$root/vendor/native-source/dav1d-1.4.2.tar.gz" -C "$work/dav1d" --strip-components=1
 jobs=${PAPAN_BUILD_JOBS:-4}
 x264_flags=(--prefix="$prefix" --enable-static --disable-cli --disable-opencl --bit-depth=8)
 ffmpeg_flags=(--prefix="$prefix" --disable-autodetect --disable-doc --disable-debug --disable-shared --enable-static

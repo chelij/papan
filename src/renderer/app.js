@@ -82,6 +82,7 @@ function render() {
   $('grid').replaceChildren();
   shown = 0;
   appendPins();
+  if ($('collections-dialog').open) renderCollectionBrowser();
 }
 
 function itemRatio(item) {
@@ -574,12 +575,17 @@ async function closeCollection(id) {
   } catch (error) { toastError(error); }
 }
 
-function openCollectionBrowser() {
-  if (document.querySelector('dialog[open]') || collectionFileBusy) return;
+function renderCollectionBrowser() {
   const closed = library.collections.filter(item => item.closed);
   $('trash-section').hidden = !library.trash?.length;
   $('removed-items').innerHTML = [...(library.trash || [])].reverse().map(item => `<button class="closed-collection" data-restore="${escapeHTML(item.id)}"><span>${escapeHTML(item.collection?.name || item.pins[0]?.pin.title)}</span><small>restore ${item.collection ? 'collection' : 'pin'} · ${item.pins.length} ${item.pins.length === 1 ? 'pin' : 'pins'}</small></button>`).join('');
   $('closed-collections').innerHTML = (closed.length ? '<span class="storage-heading">closed collections</span>' : '<p class="hint">no closed collections yet</p>') + closed.map(item => `<button class="closed-collection" data-reopen-collection="${escapeHTML(item.id)}"><span>${escapeHTML(item.name)}</span><small>${library.pins.filter(pin => pin.collectionId === item.id).length} pins · ${escapeHTML(item.destination || 'saved in Papan')}</small></button>`).join('');
+  for (const button of $('collections-dialog').querySelectorAll('button:not([data-close])')) button.disabled = collectionFileBusy;
+}
+
+function openCollectionBrowser() {
+  if (document.querySelector('dialog[open]') || collectionFileBusy) return;
+  renderCollectionBrowser();
   $('collection-file-status').textContent = '';
   $('collection-file-error').textContent = '';
   $('collections-dialog').showModal();

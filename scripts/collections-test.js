@@ -143,8 +143,12 @@ try {
   await page.getByRole('button', { name: 'Details for A place for curiosity', exact: true }).click();
   await expect(page.locator('.article-body')).toContainText('A quiet place');
   await page.getByRole('button', { name: 'Close viewer', exact: true }).click();
-  await page.getByRole('button', { name: 'Close changed outside Papan', exact: true }).click();
-  await page.getByRole('button', { name: 'Open collection', exact: true }).click();
+  // Open the browser in the same turn, before the asynchronous tab close completes.
+  await page.getByRole('button', { name: 'Close changed outside Papan', exact: true }).evaluate(button => {
+    button.click();
+    document.getElementById('open-collection').click();
+  });
+  await expect(page.locator('[data-reopen-collection]')).toBeVisible();
   await page.screenshot({ path: 'artifacts/open-collections.png' });
   await page.locator('[data-reopen-collection]').click();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
