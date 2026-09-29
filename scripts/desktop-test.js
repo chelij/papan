@@ -172,9 +172,9 @@ try {
   await launch();
   await page.getByRole('tab', { name: 'offline references', exact: true }).click();
   await expect(page.locator('.pin')).toHaveCount(48);
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.locator('.pin').last().scrollIntoViewIfNeeded();
   await expect.poll(() => page.locator('.pin').count()).toBeGreaterThanOrEqual(96);
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.locator('.pin').last().scrollIntoViewIfNeeded();
   await expect(page.locator('.pin')).toHaveCount(104);
   assert.deepEqual(errors, []);
   console.log('Desktop checks passed: adaptive rows, stable album frames with cropped slides, full video playback past eight seconds, album advance after video ends, density and slideshow sliders, offline restart/viewer, and continuous scrolling.');

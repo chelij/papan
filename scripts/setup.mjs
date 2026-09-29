@@ -10,7 +10,7 @@ function run(command, args) {
   if (result.status !== 0) throw new Error(`${command} failed. ${result.error?.message || ''}`);
 }
 if (!existsSync(python)) {
-  const candidates = process.platform === 'win32' ? [['py', '-3'], ['python']] : [['python3'], ['python']];
+  const candidates = process.platform === 'win32' ? [['python'], ['py', '-3']] : [['python3'], ['python']];
   const installed = candidates.find(([command, ...args]) => spawnSync(command, [...args, '--version'], { stdio: 'ignore' }).status === 0);
   if (!installed) throw new Error('Install Python 3.11 or newer to develop Papan. Packaged builds include the media tools.');
   run(installed[0], [...installed.slice(1), '-m', 'venv', '.venv']);

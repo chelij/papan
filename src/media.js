@@ -12,6 +12,8 @@ import { Readability } from '@mozilla/readability';
 import developmentFFmpeg from 'ffmpeg-static';
 import sharp from 'sharp';
 
+// Staging files are renamed/removed immediately; cached handles lock them on Windows.
+sharp.cache({ files: 0 });
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundledFFmpeg = path.join(project, 'vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
 const ffmpeg = existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg;
