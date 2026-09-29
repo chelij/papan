@@ -1,0 +1,50 @@
+name: Desktop builds
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run setup
+      - run: npm run check
+      - run: npm test
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:desktop
+      - if: runner.os != 'Linux'
+        run: npm run test:desktop
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:layout
+      - if: runner.os != 'Linux'
+        run: npm run test:layout
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:interactions
+      - if: runner.os != 'Linux'
+        run: npm run test:interactions
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:collections
+      - if: runner.os != 'Linux'
+        run: npm run test:collections
+      - run: npm run build:tools
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Papan-${{ runner.os }}-${{ runner.arch }}
+          path: dist/*.tar.gz
+          retention-days: 14
