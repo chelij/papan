@@ -8,6 +8,10 @@ const invoke = channel => async input => {
 
 contextBridge.exposeInMainWorld('papan', {
   library: invoke('library'), inspect: invoke('inspect'), save: invoke('save'), cancel: invoke('cancel'),
+  enqueueSave: invoke('enqueue-save'), downloads: invoke('downloads'), cancelDownload: invoke('cancel-download'),
+  retryDownload: invoke('retry-download'), dismissDownload: invoke('dismiss-download'),
+  updatePin: invoke('update-pin'), enqueuePin: invoke('enqueue-pin'), undoRemove: invoke('undo-remove'),
+  enqueueCollection: invoke('enqueue-collection'), exportCollection: invoke('export-collection'),
   createCollection: invoke('create-collection'), updateCollection: invoke('update-collection'),
   saveCollection: invoke('save-collection'), openCollection: invoke('open-collection'),
   closeCollection: invoke('close-collection'), reopenCollection: invoke('reopen-collection'),
@@ -17,5 +21,10 @@ contextBridge.exposeInMainWorld('papan', {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('papan:progress', listener);
     return () => ipcRenderer.removeListener('papan:progress', listener);
+  },
+  onDownloads: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('papan:downloads', listener);
+    return () => ipcRenderer.removeListener('papan:downloads', listener);
   },
 });

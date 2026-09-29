@@ -2,11 +2,11 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; background: #000; }
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { color: inherit; cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 button, input, select { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #d0f5ad; outline-offset: 4px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid #d0f5ad; outline-offset: 4px; }
 button { border: 0; }
 button, input, select { border-radius: 5px; }
 ::selection { color: #000; background: #d0f5ad; }
@@ -28,7 +28,7 @@ button, input, select { border-radius: 5px; }
 .collection-close:hover { background: #303030; color: #fff; }
 #toolbar button:focus-visible { outline-color: #dcdcdc; }
 .collection-tab:focus-visible { outline-offset: -2px; }
-.mode-label { font-size: 9px; line-height: 10px; letter-spacing: 1px; color: #858585; text-transform: uppercase; padding-left: 1px; }
+.mode-label { font-size: 9px; line-height: 10px; color: #aaa; padding-left: 1px; }
 #canvas:focus-visible { outline: 1px solid #8baf70; outline-offset: -1px; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .toolbar-button { display: grid; place-items: center; width: 36px; height: 36px; padding: 8px; background: #171717; border: 1px solid #2a2a2a; color: #aaa; }
@@ -104,7 +104,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: #c1e6a4; }
 .primary-button { color: #121810; background: #c4e7a9; padding: 12px 17px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .primary-button:hover { background: #d9f6c3; }
 .primary-button span { margin-left: 12px; font-size: 14px; }
-.hint { font-size: 11px; line-height: 1.6; color: #7d8377; }
+.hint { font-size: 12px; line-height: 1.6; color: #a0a69a; }
 .eyebrow { text-transform: uppercase; letter-spacing: 1.1px; font-size: 10px; color: #a0b28e; }
 .source-heading { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #292c25; padding-top: 22px; margin-top: 24px; }
 .picker-heading { display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px; }
@@ -159,3 +159,47 @@ input[type="range"]:disabled { cursor: default; opacity: .4; }
 #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 20px; background: #252922; border: 1px solid #3f4736; color: #d5e5c5; border-radius: 7px; max-width: calc(100vw - 50px); font-size: 12px; z-index: 20; }
 @media (max-width: 780px) { #toolbar { padding: 0 15px; gap: 9px; } .brand { margin-right: 4px; } .toolbar-actions { gap: 6px; } .collection-entry { max-width: min(176px, 100%); } .collection-tab { max-width: 150px; padding: 13px 6px 13px 12px; } #search-panel { right: 15px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Organization and background activity stay secondary to the canvas. */
+textarea { display: block; width: 100%; resize: vertical; min-height: 80px; padding: 12px 13px; color: #e3e6df; background: #191b18; border: 1px solid #33362f; border-radius: 5px; font-size: 13px; line-height: 1.6; }
+label, legend { color: #a6aca1; }
+summary { cursor: pointer; color: #c4cbbd; font-size: 12px; }
+details { margin-top: 22px; }
+summary .hint { margin-left: 6px; }
+#search-panel { width: 400px; }
+.search-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+#search-panel .search-filters label { margin: 16px 0 8px; }
+.search-filters select { padding: 9px; }
+.search-summary { display: flex; justify-content: space-between; gap: 16px; padding: 18px 24px 6px; font-size: 12px; color: #b6bcb0; }
+.tile-collection { display: block; color: #c4e7a9; font-size: 11px; margin-bottom: 6px; }
+.grid[data-scope="all"] .tile-overlay { opacity: 1; }
+.shortcuts { margin-top: 20px; color: #b7b9b2; font-size: 12px; }
+.shortcuts summary { cursor: pointer; }
+.shortcuts dl { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.shortcuts dd { margin: 0; color: #e8e9e5; }
+.button-group { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; }
+.cover-fieldset { border: 0; padding: 0; margin: 24px 0 0; min-width: 0; }
+.cover-fieldset legend { font-size: 12px; margin-bottom: 12px; }
+#edit-covers .picker-choose { border: 1px solid #353a30; border-radius: 5px; }
+#edit-covers .picker-choose:has(:checked) { border-color: #c4e7a9; }
+#edit-covers video { width: 100%; height: 100%; object-fit: contain; }
+.viewer-details { margin-top: 18px; }
+.viewer-notes { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; color: #c7cdbf; max-height: 180px; overflow: auto; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { display: inline-block; padding: 4px 8px; background: #22271e; border: 1px solid #353d2d; border-radius: 20px; color: #c4d6b5; font-size: 11px; }
+#removed-items { display: grid; gap: 8px; margin-top: 12px; }
+#downloads-toggle { position: fixed; bottom: 22px; right: 22px; z-index: 9; box-shadow: 0 6px 22px #0009; }
+#download-count { margin-left: 8px; color: #c4e7a9; }
+#downloads-panel { position: fixed; inset: auto 22px 76px auto; margin: 0; padding: 22px; width: 380px; max-width: calc(100vw - 36px); max-height: min(70vh, 680px); overflow-y: auto; color: #ececea; background: #111211; border: 1px solid #33362f; border-radius: 12px; box-shadow: 0 15px 45px #000b; }
+#downloads-panel .dialog-top { margin-bottom: 8px; }
+.download { border-top: 1px solid #30332c; padding: 16px 0 8px; }
+.download h2 { font-size: 13px; font-weight: 500; margin: 0; overflow-wrap: anywhere; }
+.download p { margin: 8px 0; font-size: 12px; line-height: 1.5; color: #a8afa0; overflow-wrap: anywhere; }
+.download[data-state="failed"] p { color: #ed9f94; }
+.download progress { display: block; width: 100%; height: 4px; margin: 10px 0; accent-color: #c4e7a9; }
+.download-actions { display: flex; gap: 18px; margin-top: 10px; }
+.download-actions button { padding: 4px 0; }
+#toast { display: flex; align-items: center; gap: 20px; }
+#undo-remove { font-size: 12px; text-decoration: underline; white-space: nowrap; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 780px) { .brand { max-width: 85px; } .mode-label { font-size: 8px; } #toast { bottom: 74px; } }

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 Cheliyono Jenardi
 """Papan's public-only gallery-dl / yt-dlp process. One JSON request per run."""
 import contextlib
 import hashlib
@@ -245,6 +247,9 @@ def instagram_download(request):
 def main():
     logging.basicConfig(stream=sys.stderr, level=logging.ERROR)
     request = json.loads(sys.stdin.read(1024 * 1024))
+    if request["action"] in ("export-bundle", "import-bundle"):
+        from archive import export_bundle, import_bundle
+        return export_bundle(request) if request["action"] == "export-bundle" else import_bundle(request)
     if request["action"] == "versions":
         from gallery_dl.version import __version__ as gallery_version
         from yt_dlp.version import __version__ as video_version
@@ -270,6 +275,8 @@ def main():
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     try:
         # Libraries can print progress; stdout is reserved for the JSON response.
         with contextlib.redirect_stdout(sys.stderr):

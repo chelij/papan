@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
 import { access, mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,10 +9,12 @@ import { pipeline } from 'node:stream/promises';
 import { load } from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import ffmpeg from 'ffmpeg-static';
+import developmentFFmpeg from 'ffmpeg-static';
 import sharp from 'sharp';
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const bundledFFmpeg = path.join(project, 'vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+const ffmpeg = existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg;
 export const MAX_FILE = 512 * 1024 * 1024;
 const MAX_HTML = 6 * 1024 * 1024;
 
@@ -79,14 +81,14 @@ function run(command, args, { input, signal, timeout = 90000, env = {} } = {}) {
 export async function extractWorker(request, signal) {
   const executable = path.join(project, 'vendor', process.platform === 'win32' ? 'papan-extract.exe' : 'papan-extract');
   let command = executable, args = [];
-  try { await access(executable); } catch {
+  try { if (process.env.PAPAN_PYTHON_WORKER === '1') throw new Error('Use source helper'); await access(executable); } catch {
     command = path.join(project, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     args = [path.join(project, 'worker', 'extract.py')];
     try { await access(command); } catch { throw new Error('Media tools are missing. Run npm run setup in the project, or reinstall the packaged app.'); }
   }
   const result = await run(command, args, {
     input: JSON.stringify({ ...request, ffmpeg, node: process.execPath }), signal,
-    timeout: request.action === 'download' ? 300000 : 70000,
+    timeout: ['download', 'export-bundle', 'import-bundle'].includes(request.action) ? 300000 : 70000,
     env: { ELECTRON_RUN_AS_NODE: '1', PYTHONNOUSERSITE: '1' },
   });
   let data;

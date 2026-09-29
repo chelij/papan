@@ -11,19 +11,21 @@ let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0;
 let dragState = null, dragFrame = 0, reorderPending = false;
 let pinPreview = null;
 let layoutPreview = null;
-let collectionFileBusy = false;
+let collectionFileBusy = false, editingPin = null, undoId = null, exportRequest = null;
+let downloadStates = new Map();
 const visible = new Set();
-const defaults = { mode: 'online', density: 3, fit: 'contain', motion: true, slideshowSeconds: 4 };
+const defaults = { mode: 'online', openAction: 'source', density: 3, fit: 'contain', motion: true, slideshowSeconds: 4 };
 const collection = () => library.collections.find(item => item.id === collectionId);
 const openCollections = () => library.collections.filter(item => !item.closed);
 const settings = () => layoutPreview || collection()?.settings || defaults;
 const motion = () => settings().motion && !reducedMotion.matches && !document.hidden && !document.querySelector('dialog[open]:not(#settings-dialog)') && !($('settings-dialog').open && creatingCollection);
 
-function toast(message) {
+function toast(message, removalId = null) {
   clearTimeout(toastTimer);
-  $('toast').textContent = message;
+  $('toast-message').textContent = message;
+  undoId = removalId; $('undo-remove').hidden = !removalId;
   $('toast').hidden = false;
-  toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4500);
+  toastTimer = setTimeout(() => { $('toast').hidden = true; }, removalId ? 10000 : 4500);
 }
 
 function errorAt(id, error) { $(id).textContent = error.message || String(error); }
@@ -46,16 +48,33 @@ function render() {
   } else {
     for (const name of ['role', 'aria-labelledby', 'tabindex']) $('canvas').removeAttribute(name);
   }
-  $('storage-mode').textContent = collectionId ? settings().mode : '';
+  $('storage-mode').textContent = collectionId ? settings().mode === 'offline' ? 'originals saved' : 'previews cached' : '';
   for (const id of ['toggle-search', 'collection-settings', 'save-collection-file']) $(id).disabled = !collectionId || collectionFileBusy;
+  $('toggle-search').disabled = !library.collections.length || collectionFileBusy;
   $('open-empty-collection').hidden = Boolean(collectionId);
   $('grid').dataset.fit = settings().fit;
-  const query = $('search').value.trim().toLowerCase();
-  $('toggle-search').classList.toggle('has-filter', Boolean(query));
-  filtered = library.pins.filter(pin => pin.collectionId === collectionId && (!query || `${pin.title} ${pin.author} ${pin.text} ${pin.sourceUrl}`.toLowerCase().includes(query)));
+  const query = $('search').value.trim().toLowerCase(), all = $('search-scope').value === 'all';
+  $('grid').dataset.scope = all ? 'all' : 'collection';
+  const candidates = library.pins.filter(pin => all || pin.collectionId === collectionId);
+  const source = $('search-source').value, tag = $('search-tag').value;
+  const sources = [...new Set(candidates.map(pin => new URL(pin.sourceUrl).hostname.replace(/^www\./, '')))].sort();
+  const tags = [...new Set(candidates.flatMap(pin => (pin.tags || []).map(tag => tag.toLowerCase())))].sort();
+  $('search-source').innerHTML = '<option value="">any source</option>' + sources.map(value => `<option value="${escapeHTML(value)}">${escapeHTML(value)}</option>`).join('');
+  $('search-tag').innerHTML = '<option value="">any tag</option>' + tags.map(value => `<option value="${escapeHTML(value)}">${escapeHTML(value)}</option>`).join('');
+  $('search-source').value = sources.includes(source) ? source : '';
+  $('search-tag').value = tags.includes(tag) ? tag : '';
+  const kind = $('search-kind').value, activeSource = $('search-source').value, activeTag = $('search-tag').value;
+  const hasFilter = Boolean(query || all || kind || activeSource || activeTag);
+  $('toggle-search').classList.toggle('has-filter', hasFilter);
+  filtered = candidates.filter(pin => (!query || `${pin.title} ${pin.author || ''} ${pin.text || ''} ${pin.sourceUrl} ${pin.notes || ''} ${(pin.tags || []).join(' ')} ${pin.items.filter(item => item.kind === 'text').map(item => item.text).join(' ')}`.toLowerCase().includes(query)) &&
+    (!kind || pin.items.some(item => item.kind === kind)) &&
+    (!activeSource || new URL(pin.sourceUrl).hostname.replace(/^www\./, '') === activeSource) &&
+    (!activeTag || (pin.tags || []).some(tag => tag.toLowerCase() === activeTag)));
+  $('search-summary').hidden = !hasFilter;
+  $('search-count').textContent = `${filtered.length} ${filtered.length === 1 ? 'result' : 'results'} · ${all ? 'all collections, including closed tabs' : collection()?.name || 'this collection'}`;
   $('empty').hidden = filtered.length > 0;
-  $('start-collecting').textContent = query ? 'nothing here matches that search' : 'paste link to start collecting';
-  $('start-collecting').disabled = Boolean(query);
+  $('start-collecting').textContent = hasFilter ? 'nothing here matches those filters' : 'paste link to start collecting';
+  $('start-collecting').disabled = hasFilter;
   $('grid').hidden = !filtered.length;
   for (const card of $('grid').children) { pause(card); card._cancelSizing?.(); }
   visible.clear();
@@ -116,7 +135,7 @@ function appendPins() {
   for (const pin of next) {
     const card = document.createElement('article');
     card.className = 'pin';
-    card.draggable = true;
+    card.draggable = $('search-scope').value !== 'all';
     card.setAttribute('role', 'listitem');
     card.dataset.pinId = pin.id;
     card._pin = pin;
@@ -128,9 +147,9 @@ function appendPins() {
     card._sized = card._slides.length < 2 || card._slides.every(item => item.kind === 'text' || itemRatio(item));
     card._last = Date.now();
     const domain = new URL(pin.sourceUrl).hostname.replace(/^www\./, '');
-    card.innerHTML = `<button class="tile-main" aria-label="${escapeHTML(pin.title)}"><div class="tile-media"></div><span class="tile-overlay"><span class="tile-title">${escapeHTML(pin.title)}</span><span class="tile-source">${escapeHTML(domain)}</span></span></button><button class="pin-detail" aria-label="Details for ${escapeHTML(pin.title)}" title="View saved items">···</button>${card._slides.length > 1 ? `<span class="album-mark" aria-label="${card._slides.length} slides"><span class="slide-dot active"></span>${'<span class="slide-dot"></span>'.repeat(Math.min(card._slides.length - 1, 5))}<span class="album-count">${card._slides.length}</span></span>` : ''}`;
+    card.innerHTML = `<button class="tile-main" aria-label="${escapeHTML(pin.title)}"><div class="tile-media"></div><span class="tile-overlay"><span class="tile-collection">${$('search-scope').value === 'all' ? escapeHTML(library.collections.find(item => item.id === pin.collectionId)?.name) : ''}</span><span class="tile-title">${escapeHTML(pin.title)}</span><span class="tile-source">${escapeHTML(domain)}</span></span></button><button class="pin-detail" aria-label="Details for ${escapeHTML(pin.title)}" title="View saved items">···</button>${card._slides.length > 1 ? `<span class="album-mark" aria-label="${card._slides.length} slides"><span class="slide-dot active"></span>${'<span class="slide-dot"></span>'.repeat(Math.min(card._slides.length - 1, 5))}<span class="album-count">${card._slides.length}</span></span>` : ''}`;
     card.querySelector('.tile-main').onclick = () => {
-      if (settings().mode === 'online') api.openSource(pin.id).catch(toastError);
+      if (library.collections.find(item => item.id === pin.collectionId)?.settings.openAction === 'source') api.openSource(pin.id).catch(toastError);
       else openViewer(pin);
     };
     card.querySelector('.tile-main').setAttribute('aria-describedby', 'reorder-help');
@@ -297,6 +316,8 @@ function openAdd(link = '', inspect = false) {
   selected.clear();
   $('inspection').hidden = true;
   $('link-input').value = link;
+  $('pin-tags').value = ''; $('pin-notes').value = '';
+  document.querySelector('.pin-metadata').open = false;
   $('add-error').textContent = '';
   $('add-status').textContent = '';
   $('add-dialog').showModal();
@@ -374,12 +395,12 @@ $('save-pin').onclick = async () => {
   $('add-error').textContent = '';
   $('add-status').textContent = 'saving your collection…';
   try {
-    const result = await api.save({ requestId, inspectionId: inspection.id, selectedIds: [...selected], coverId,
-      collectionId: $('save-collection').value || null, title: $('pin-title').value });
+    await api.enqueueSave({ inspectionId: inspection.id, selectedIds: [...selected], coverId,
+      collectionId: $('save-collection').value || null, title: $('pin-title').value, tags: $('pin-tags').value.split(',').map(tag => tag.trim()).filter(Boolean), notes: $('pin-notes').value });
     addRequest = null;
     $('add-dialog').close();
-    await refresh(result.collectionId);
-    toast('added to your collection');
+    await refresh();
+    toast('saving in the background · keep collecting');
   } catch (error) { if ($('add-dialog').open) errorAt('add-error', error); }
   finally { if (addRequest === requestId) addRequest = null; busyAdd(false); $('add-status').textContent = ''; }
 };
@@ -414,6 +435,7 @@ function openSettings(create = false) {
   $('collection-name').value = current.name;
   $('collection-name').placeholder = 'name this corner of the internet';
   $('collection-mode').value = current.settings.mode;
+  $('open-action').value = current.settings.openAction;
   $('layout-density').value = current.settings.density;
   $('media-fit').value = current.settings.fit;
   $('slide-seconds').value = current.settings.slideshowSeconds;
@@ -442,18 +464,20 @@ $('settings-form').onsubmit = async event => {
   const requestId = crypto.randomUUID();
   settingsRequest = requestId;
   const input = { id: collectionId, requestId, name: $('collection-name').value, settings: {
-    mode: $('collection-mode').value, density: Number($('layout-density').value), fit: $('media-fit').value,
+    mode: $('collection-mode').value, openAction: $('open-action').value, density: Number($('layout-density').value), fit: $('media-fit').value,
     motion: $('motion').checked, slideshowSeconds: Number($('slide-seconds').value),
   } };
   $('settings-error').textContent = '';
   $('settings-status').textContent = 'saving collection…';
   for (const control of $('settings-form').elements) control.disabled = true;
   try {
-    const result = await (creatingCollection ? api.createCollection(input) : api.updateCollection(input));
+    const background = !creatingCollection && input.settings.mode === 'offline' && library.pins.some(pin => pin.collectionId === input.id && !pin.offline);
+    const result = await (creatingCollection ? api.createCollection(input) : background ? api.enqueueCollection(input) : api.updateCollection(input));
     settingsRequest = null;
     $('settings-dialog').close();
     $('search').value = '';
-    await refresh(result.id);
+    await refresh(background ? collectionId : result.id);
+    if (background) toast('downloading originals in the background');
   } catch (error) { if ($('settings-dialog').open) errorAt('settings-error', error); }
   finally {
     settingsRequest = null;
@@ -466,7 +490,8 @@ function openViewer(pin) {
   viewerPin = pin;
   viewerIndex = Math.max(0, pin.items.findIndex(item => item.id === pin.coverId));
   $('viewer-title').textContent = pin.title;
-  $('viewer-source').textContent = `${pin.author ? `${pin.author} · ` : ''}${new URL(pin.sourceUrl).hostname} · ${pin.offline ? 'saved offline' : 'cached preview'}`;
+  $('viewer-source').textContent = `${pin.author ? `${pin.author} · ` : ''}${new URL(pin.sourceUrl).hostname} · ${pin.offline ? 'originals saved on this device' : 'cached previews · videos are silent'}`;
+  $('viewer-details').innerHTML = `<div class="tag-list">${(pin.tags || []).map(tag => `<span class="tag">${escapeHTML(tag)}</span>`).join('')}</div>${pin.notes ? `<p class="viewer-notes">${escapeHTML(pin.notes)}</p>` : ''}`;
   $('viewer').showModal();
   renderViewer();
 }
@@ -507,10 +532,10 @@ $('confirm-remove').onclick = async () => {
   finally { $('confirm-remove').disabled = false; }
 };
 $('remove-pin').onclick = () => confirmRemove('Remove this pin from the collection?', async () => {
-  await api.deletePin(viewerPin.id); $('viewer').close(); await refresh();
+  const removalId = await api.deletePin(viewerPin.id); $('viewer').close(); await refresh(); toast('pin removed', removalId);
 });
 $('delete-collection').onclick = () => confirmRemove(`Remove “${collection().name}” and all of its pins?`, async () => {
-  await api.deleteCollection(collectionId); $('settings-dialog').close(); await refresh();
+  const removalId = await api.deleteCollection(collectionId); $('settings-dialog').close(); await refresh(); toast('collection removed', removalId);
 });
 $('viewer-prev').onclick = () => { viewerIndex = (viewerIndex + viewerPin.items.length - 1) % viewerPin.items.length; renderViewer(); };
 $('viewer-next').onclick = () => { viewerIndex = (viewerIndex + 1) % viewerPin.items.length; renderViewer(); };
@@ -552,6 +577,8 @@ async function closeCollection(id) {
 function openCollectionBrowser() {
   if (document.querySelector('dialog[open]') || collectionFileBusy) return;
   const closed = library.collections.filter(item => item.closed);
+  $('trash-section').hidden = !library.trash?.length;
+  $('removed-items').innerHTML = [...(library.trash || [])].reverse().map(item => `<button class="closed-collection" data-restore="${escapeHTML(item.id)}"><span>${escapeHTML(item.collection?.name || item.pins[0]?.pin.title)}</span><small>restore ${item.collection ? 'collection' : 'pin'} · ${item.pins.length} ${item.pins.length === 1 ? 'pin' : 'pins'}</small></button>`).join('');
   $('closed-collections').innerHTML = (closed.length ? '<span class="storage-heading">closed collections</span>' : '<p class="hint">no closed collections yet</p>') + closed.map(item => `<button class="closed-collection" data-reopen-collection="${escapeHTML(item.id)}"><span>${escapeHTML(item.name)}</span><small>${library.pins.filter(pin => pin.collectionId === item.id).length} pins · ${escapeHTML(item.destination || 'saved in Papan')}</small></button>`).join('');
   $('collection-file-status').textContent = '';
   $('collection-file-error').textContent = '';
@@ -687,6 +714,7 @@ function scrollDrag() {
 for (const [containerId, kind, selector] of [['grid', 'pin', '.pin'], ['collections', 'collection', '.collection-entry']]) {
   $(containerId).ondragstart = event => {
     const node = event.target.closest(selector);
+    if (kind === 'pin' && $('search-scope').value === 'all') { event.preventDefault(); return; }
     if (!node || reorderPending || document.querySelector('dialog[open]')) { event.preventDefault(); return; }
     const id = kind === 'pin' ? node.dataset.pinId : node.dataset.collectionId;
     dragState = { kind, id, node, container: $(containerId), x: event.clientX, y: event.clientY };
@@ -734,7 +762,7 @@ document.addEventListener('dragleave', event => {
 document.addEventListener('keydown', event => {
   if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
   const tab = event.target.closest('.collection-tab'), pin = event.target.closest('.tile-main')?.closest('.pin');
-  if (!tab && !pin) return;
+  if (!tab && !pin || pin && $('search-scope').value === 'all') return;
   event.preventDefault(); event.stopPropagation();
   const kind = tab ? 'collection' : 'pin', id = tab ? tab.dataset.collectionId : pin.dataset.pinId;
   const items = tab ? openCollections() : filtered, index = items.findIndex(item => item.id === id);
@@ -745,7 +773,7 @@ document.addEventListener('keydown', event => {
 function switchCollection(id) {
   if (id !== collectionId) {
     collectionId = id;
-    $('search').value = '';
+    resetFilters();
     render();
     window.scrollTo(0, 0);
   }
@@ -767,15 +795,18 @@ $('collections').onkeydown = event => {
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? count - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + count) % count;
   switchCollection(open[next].id);
 };
+function resetFilters() { $('search').value = ''; $('search-scope').value = 'collection'; for (const id of ['search-kind', 'search-source', 'search-tag']) $(id).value = ''; }
+$('reset-filters').onclick = () => { resetFilters(); render(); };
+for (const id of ['search-scope', 'search-kind', 'search-source', 'search-tag']) $(id).onchange = render;
 $('search').oninput = render;
 $('search').onkeydown = event => {
   if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); $('search-panel').hidePopover(); $('toggle-search').focus(); }
 };
 $('search-panel').addEventListener('toggle', event => {
   $('toggle-search').setAttribute('aria-expanded', String(event.newState === 'open'));
-  if (event.newState === 'open') $('search').focus();
+  if (event.newState === 'open') { if (!collectionId) { $('search-scope').value = 'all'; render(); } $('search').focus(); }
 });
-$('clear-search').onclick = () => { $('search').value = ''; render(); $('search').focus(); };
+$('clear-search').onclick = () => { resetFilters(); render(); $('search').focus(); };
 $('start-collecting').onclick = () => openAdd();
 $('add-link').onclick = () => openAdd();
 $('new-collection').onclick = () => openSettings(true);
@@ -789,6 +820,7 @@ $('add-dialog').addEventListener('close', () => {
 });
 $('settings-dialog').addEventListener('close', () => {
   if (settingsRequest) api.cancel(settingsRequest).catch(() => {});
+  if (exportRequest) api.cancel(exportRequest).catch(() => {});
   layoutPreview = null;
   $('grid').dataset.fit = settings().fit;
   scheduleLayout();
@@ -802,9 +834,10 @@ document.addEventListener('paste', event => {
 document.addEventListener('keydown', event => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); openCollectionBrowser(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && !document.querySelector('dialog[open]')) { event.preventDefault(); saveCollectionFile(event.shiftKey); }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && collectionId && !document.querySelector('dialog[open]')) { event.preventDefault(); $('search-panel').showPopover(); $('search').focus(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && library.collections.length && !document.querySelector('dialog[open]')) { event.preventDefault(); $('search-panel').showPopover(); $('search').focus(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); if (!document.querySelector('dialog[open]')) openAdd(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ',' && collectionId && !document.querySelector('dialog[open]')) { event.preventDefault(); openSettings(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !document.querySelector('dialog[open]') && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) { event.preventDefault(); restoreRemoval(); }
   if ($('viewer').open && !['INPUT', 'TEXTAREA', 'VIDEO'].includes(event.target.tagName)) {
     if (event.key === 'ArrowRight') $('viewer-next').click();
     if (event.key === 'ArrowLeft') $('viewer-prev').click();
@@ -814,4 +847,98 @@ api.onProgress(({ id, message }) => {
   if (id === addRequest) $('add-status').textContent = message;
   if (id === settingsRequest) $('settings-status').textContent = message;
 });
+
+$('collection-mode').onchange = () => { $('open-action').value = $('collection-mode').value === 'offline' ? 'saved' : 'source'; };
+$('edit-pin').onclick = () => {
+  editingPin = viewerPin;
+  $('viewer').close();
+  $('edit-title').value = editingPin.title;
+  $('edit-tags').value = (editingPin.tags || []).join(', ');
+  $('edit-notes').value = editingPin.notes || '';
+  $('edit-collection').innerHTML = library.collections.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}${item.closed ? ' (closed)' : ''}</option>`).join('');
+  $('edit-collection').value = editingPin.collectionId;
+  $('edit-covers').innerHTML = editingPin.items.map((item, index) => {
+    const source = escapeHTML(mediaURL(editingPin, item));
+    const visual = item.kind === 'text' ? `<div class="picker-text">${escapeHTML(item.text?.slice(0, 250))}</div>` : item.kind === 'video' ? `<video src="${source}" preload="metadata" muted></video>` : `<img src="${source}" alt="" loading="lazy">`;
+    return `<label class="picker-choose"><input type="radio" name="edit-cover" value="${escapeHTML(item.id)}" aria-label="Cover item ${index + 1}" ${editingPin.coverId === item.id ? 'checked' : ''}>${visual}<span class="picker-type">${item.kind} ${index + 1}</span></label>`;
+  }).join('');
+  $('edit-error').textContent = '';
+  $('edit-collection').onchange();
+  $('pin-editor').showModal();
+  $('edit-title').focus();
+};
+$('edit-collection').onchange = () => {
+  const target = library.collections.find(item => item.id === $('edit-collection').value);
+  $('move-hint').textContent = target?.settings.mode === 'offline' && !editingPin?.offline ? 'Originals will download in the background before this move is saved.' : 'Existing media stays on this device. No files need to be copied.';
+};
+$('pin-edit-form').onsubmit = async event => {
+  event.preventDefault();
+  const input = { id: editingPin.id, requestId: crypto.randomUUID(), title: $('edit-title').value,
+    tags: $('edit-tags').value.split(',').map(tag => tag.trim()).filter(Boolean), notes: $('edit-notes').value,
+    collectionId: $('edit-collection').value, coverId: document.querySelector('[name="edit-cover"]:checked')?.value };
+  const background = library.collections.find(item => item.id === input.collectionId)?.settings.mode === 'offline' && !editingPin.offline;
+  $('edit-error').textContent = '';
+  for (const control of $('pin-edit-form').elements) control.disabled = true;
+  try {
+    await (background ? api.enqueuePin(input) : api.updatePin(input));
+    $('pin-editor').close();
+    await refresh(background ? collectionId : input.collectionId);
+    toast(background ? 'moving after originals finish downloading' : 'pin saved');
+  } catch (error) { errorAt('edit-error', error); }
+  finally { for (const control of $('pin-edit-form').elements) control.disabled = false; }
+};
+$('pin-editor').addEventListener('close', () => { $('edit-covers').replaceChildren(); });
+
+async function restoreRemoval(id) {
+  try {
+    const restoredCollection = await api.undoRemove(id);
+    if ($('collections-dialog').open) $('collections-dialog').close();
+    resetFilters(); await refresh(restoredCollection); toast('restored to your collection');
+  } catch (error) { toastError(error); }
+}
+$('undo-remove').onclick = () => restoreRemoval(undoId);
+$('removed-items').onclick = event => { const button = event.target.closest('[data-restore]'); if (button) restoreRemoval(button.dataset.restore); };
+
+$('export-collection').onclick = async () => {
+  if (exportRequest || collectionFileBusy) return;
+  exportRequest = crypto.randomUUID();
+  $('export-collection').disabled = true;
+  $('settings-error').textContent = '';
+  $('settings-status').textContent = 'preparing portable copy…';
+  try {
+    const result = await api.exportCollection({ id: collectionId, requestId: exportRequest });
+    if (result) toast(`portable copy exported · ${result.files} media files`);
+  } catch (error) { if ($('settings-dialog').open) errorAt('settings-error', error); }
+  finally { exportRequest = null; $('export-collection').disabled = false; $('settings-status').textContent = ''; }
+};
+
+function renderDownloads(tasks, initial = false) {
+  const pending = tasks.filter(task => ['queued', 'running'].includes(task.state)).length;
+  const failed = tasks.filter(task => task.state === 'failed').length;
+  $('downloads-toggle').hidden = !tasks.length;
+  $('download-count').textContent = pending || (failed ? `${failed} to retry` : tasks.length);
+  $('download-list').innerHTML = tasks.length ? [...tasks].reverse().map(task => `<article class="download" data-state="${escapeHTML(task.state)}" role="listitem">
+    <h2>${escapeHTML(task.title)}</h2><p>${escapeHTML(task.error || (task.state === 'queued' ? 'queued · waiting for the previous task' : task.progress || task.state))}</p>
+    ${task.state === 'running' ? '<progress aria-label="Saving media"></progress>' : ''}
+    <div class="download-actions">${['queued', 'running'].includes(task.state) ? `<button class="text-button" data-task="${task.id}" data-action="cancelDownload">cancel</button>` : `${task.state !== 'completed' ? `<button class="text-button" data-task="${task.id}" data-action="retryDownload">retry</button>` : ''}<button class="text-button" data-task="${task.id}" data-action="dismissDownload">dismiss</button>`}</div></article>`).join('') : '<p class="hint">no downloads</p>';
+  for (const task of tasks) {
+    if (!initial && downloadStates.get(task.id) !== task.state && ['completed', 'failed', 'cancelled'].includes(task.state)) {
+      const message = task.state === 'completed' ? `saved · ${task.title}` : `${task.state} · ${task.title}`;
+      $('download-announcement').textContent = message;
+      toast(message);
+      if (task.state === 'completed') refresh().catch(toastError);
+    }
+  }
+  downloadStates = new Map(tasks.map(task => [task.id, task.state]));
+}
+$('download-list').onclick = async event => {
+  const button = event.target.closest('[data-task]');
+  if (!button || !['cancelDownload', 'retryDownload', 'dismissDownload'].includes(button.dataset.action)) return;
+  button.disabled = true;
+  try { await api[button.dataset.action](button.dataset.task); }
+  catch (error) { toastError(error); }
+  finally { if (button.isConnected) button.disabled = false; }
+};
+api.onDownloads(tasks => renderDownloads(tasks));
+api.downloads().then(tasks => renderDownloads(tasks, true)).catch(toastError);
 refresh().catch(toastError);

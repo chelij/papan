@@ -18,15 +18,25 @@
       <button id="new-collection" class="toolbar-button" aria-label="New collection" title="New collection"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/><path d="M12 10v7m-3.5-3.5h7"/></svg></button>
       <button id="open-collection" class="toolbar-button" aria-label="Open collection" title="Open collection (Ctrl/Cmd+O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 19V5h6l3 3h8v3M3 19l3-8h16l-3 8Z"/></svg></button>
       <button id="save-collection-file" class="toolbar-button" aria-label="Save collection" title="Save collection (Ctrl/Cmd+S)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 3h13l4 4v14H3V3ZM7 3v6h10V3M7 21v-8h10v8"/></svg></button>
-      <button id="toggle-search" class="toolbar-button" aria-label="Search collection" title="Search collection" popovertarget="search-panel" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button>
+      <button id="toggle-search" class="toolbar-button" aria-label="Search collection" title="Search (Ctrl/Cmd+F)" popovertarget="search-panel" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button>
       <button id="collection-settings" class="toolbar-button" aria-label="Collection settings" title="Collection settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="#171717"/><circle cx="15" cy="17" r="3" fill="#171717"/></svg></button>
-      <button id="add-link" class="toolbar-button" aria-label="Add link" title="Paste a link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-1 1M17 15v7m-3.5-3.5h7"/></svg></button>
+      <button id="add-link" class="toolbar-button" aria-label="Add link" title="Paste a link (Ctrl/Cmd+K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-1 1M17 15v7m-3.5-3.5h7"/></svg></button>
     </div>
   </header>
-  <div id="search-panel" popover="auto"><label for="search">filter collection</label><div class="input-row"><input id="search" aria-label="Search collection" placeholder="find a pin…" type="search" autocomplete="off"><button id="clear-search" class="icon-button" aria-label="Clear search" title="Clear search">×</button></div></div>
+  <div id="search-panel" popover="auto">
+    <label for="search">find in your library</label><div class="input-row"><input id="search" aria-label="Search collection" placeholder="title, tags, notes, or text…" type="search" autocomplete="off"><button id="clear-search" class="icon-button" aria-label="Clear search" title="Clear search">×</button></div>
+    <div class="search-filters">
+      <div><label for="search-scope">search in</label><select id="search-scope"><option value="collection">this collection</option><option value="all">all collections</option></select></div>
+      <div><label for="search-kind">media type</label><select id="search-kind"><option value="">everything</option><option value="image">images</option><option value="video">videos</option><option value="text">articles & text</option></select></div>
+      <div><label for="search-source">source</label><select id="search-source"><option value="">any source</option></select></div>
+      <div><label for="search-tag">tag</label><select id="search-tag"><option value="">any tag</option></select></div>
+    </div>
+    <p class="hint">All collections includes closed tabs. Paste a link on the canvas to collect something new.</p>
+  </div>
   <span id="reorder-help" hidden>Drag to reorder, or hold Alt and press the Left or Right arrow key.</span>
   <div id="drop-marker" hidden></div>
   <main id="canvas">
+    <div id="search-summary" class="search-summary" hidden><span id="search-count"></span><button id="reset-filters" class="text-button">clear filters</button></div>
     <div id="empty" class="empty-state">
       <div class="empty-prompt"><button id="start-collecting" aria-label="Paste link to start collecting">paste link to start collecting</button><button id="open-empty-collection" class="empty-open">open a collection</button></div>
     </div>
@@ -37,8 +47,9 @@
   <dialog id="collections-dialog" aria-labelledby="collections-title">
     <div class="dialog-top"><h1 id="collections-title">open a collection</h1><button class="icon-button" data-close="collections-dialog" aria-label="Close collection browser">×</button></div>
     <button id="browse-collection" class="quiet-button">browse for a collection…</button>
-    <p class="hint">open a .papan file. It stores the list and settings; media stays at its saved locations.</p>
+    <p class="hint">open a .papan list or a .papan.zip portable copy. Lists reference existing media; portable copies import their included files.</p>
     <div id="closed-collections"></div>
+    <details id="trash-section" hidden><summary>recently removed</summary><p class="hint">The last 20 removals are kept here, including after a restart.</p><div id="removed-items"></div></details>
     <p id="collection-file-status" class="status" role="status"></p><p id="collection-file-error" class="error" role="alert"></p>
   </dialog>
   <dialog id="add-dialog" aria-labelledby="add-title">
@@ -54,6 +65,7 @@
       <div class="picker-heading"><p>choose what to keep</p><button id="select-all" class="text-button" type="button">select all</button></div>
       <div id="media-picker" class="media-picker"></div>
       <p class="hint">choose a cover with the small circle · albums play as a slideshow</p>
+      <details class="pin-metadata"><summary>tags & notes <span class="hint">optional</span></summary><label for="pin-tags">tags, separated by commas</label><input id="pin-tags" maxlength="820" placeholder="architecture, ideas"><label for="pin-notes">personal notes</label><textarea id="pin-notes" maxlength="10000" rows="3" placeholder="Why did you save this?"></textarea></details>
       <div id="save-collection-row"><label for="save-collection">collection</label><select id="save-collection"></select></div>
       <div class="dialog-footer"><span id="save-hint" class="hint">your first collection will be created</span><button id="save-pin" class="primary-button">add to collection <span>+</span></button></div>
     </div>
@@ -64,25 +76,48 @@
     <div class="dialog-top"><h1 id="settings-title">collection settings</h1><button class="icon-button" data-close="settings-dialog" aria-label="Close collection settings">×</button></div>
     <form id="settings-form">
       <label for="collection-name">name</label><input id="collection-name" maxlength="80" required>
-      <label for="collection-mode">when a pin is opened</label>
-      <select id="collection-mode"><option value="online">online · open the original link</option><option value="offline">offline · open the saved media</option></select>
-      <p class="hint">switching to offline downloads existing pins too. Original links are always kept.</p>
+      <label for="collection-mode">media storage</label>
+      <select id="collection-mode"><option value="online">cache previews</option><option value="offline">download originals</option></select>
+      <p class="hint">Cached previews are smaller; video previews have no audio. Download originals to keep full media on this device. Existing originals are always retained.</p>
+      <label for="open-action">when a pin is opened</label><select id="open-action"><option value="source">open original page</option><option value="saved">view saved media</option></select>
       <div class="setting-pair"><div><div class="range-heading"><label for="layout-density">layout density</label><output id="density-value" for="layout-density" aria-hidden="true">3</output></div><input id="layout-density" type="range" min="1" max="10" step="1" value="3"><div class="range-limits" aria-hidden="true"><span>1 · spacious</span><span>10 · compact</span></div></div><div><label for="media-fit">media fit</label><select id="media-fit"><option value="contain">adaptive frames</option><option value="cover">square frames</option></select></div></div>
       <p id="layout-preview-hint" class="hint">album slides crop to fill a shared frame. Changes preview as you adjust them; save to keep them.</p>
       <div class="setting-pair"><div><div class="range-heading"><label for="slide-seconds">slideshow interval</label><output id="slideshow-value" for="slide-seconds" aria-hidden="true">4 s</output></div><input id="slide-seconds" type="range" min="1" max="10" step="1" value="4"><div class="range-limits" aria-hidden="true"><span>1 s</span><span>10 s</span></div></div><div class="toggle-setting"><label><input id="motion" type="checkbox"> autoplay & slideshows</label><p class="hint">videos always start muted</p></div></div>
       <div class="dialog-footer"><button id="delete-collection" type="button" class="danger-text">delete collection</button><button id="save-settings" class="primary-button">save settings</button></div>
     </form>
     <p id="settings-status" class="status" role="status"></p><p id="settings-error" class="error" role="alert"></p>
-    <div id="collection-storage" class="collection-storage"><span class="storage-heading">collection destination</span><p id="collection-destination" class="hint"></p><button id="choose-destination" class="quiet-button" type="button">save as…</button><p class="hint">the .papan file stores the list and settings, and updates automatically. Media stays where it is. Closing a tab keeps everything saved.</p></div>
+    <div id="collection-storage" class="collection-storage"><span class="storage-heading">saved collection list</span><p id="collection-destination" class="hint"></p><button id="choose-destination" class="quiet-button" type="button">save as…</button><p class="hint">The .papan list updates automatically and references media on this device. It does not include media files. Closing a tab keeps everything saved.</p><button id="export-collection" class="quiet-button" type="button">export portable copy…</button><p class="hint">A .papan.zip includes cached previews, any downloaded originals, tags, and notes. Open it on another device to import an independent copy.</p></div>
     <div id="tools-info" class="tools-info"><button id="library-folder" class="text-button">open local library folder ↗</button><span id="tool-versions"></span></div>
+    <details class="shortcuts"><summary>keyboard shortcuts</summary><dl><dt>paste a link on the canvas</dt><dd>Ctrl/Cmd + V</dd><dt>add a link</dt><dd>Ctrl/Cmd + K</dd><dt>search</dt><dd>Ctrl/Cmd + F</dd><dt>save collection list</dt><dd>Ctrl/Cmd + S</dd><dt>save list as…</dt><dd>Ctrl/Cmd + Shift + S</dd><dt>open a collection</dt><dd>Ctrl/Cmd + O</dd><dt>undo removal</dt><dd>Ctrl/Cmd + Z</dd><dt>move a focused pin or tab</dt><dd>Alt + ← / →</dd></dl></details>
   </dialog>
   <dialog id="viewer" class="viewer" aria-labelledby="viewer-title">
     <div class="dialog-top"><div><h1 id="viewer-title"></h1><p id="viewer-source" class="hint"></p></div><button class="icon-button" data-close="viewer" aria-label="Close viewer">×</button></div>
     <div id="viewer-media"></div>
     <div class="viewer-controls"><button id="viewer-prev" class="quiet-button" aria-label="Previous item">←</button><span id="viewer-position" class="hint"></span><button id="viewer-next" class="quiet-button" aria-label="Next item">→</button></div>
-    <div class="dialog-footer"><button id="remove-pin" class="danger-text">remove pin</button><button id="open-source" class="quiet-button">open original ↗</button></div>
+    <div id="viewer-details" class="viewer-details"></div>
+    <div class="dialog-footer"><div class="button-group"><button id="edit-pin" class="quiet-button">edit pin</button><button id="remove-pin" class="danger-text">remove pin</button></div><button id="open-source" class="quiet-button">open original ↗</button></div>
   </dialog>
+  <dialog id="pin-editor" aria-labelledby="pin-editor-title">
+    <div class="dialog-top"><h1 id="pin-editor-title">edit pin</h1><button class="icon-button" data-close="pin-editor" aria-label="Close pin editor">×</button></div>
+    <form id="pin-edit-form">
+      <label for="edit-title">pin title</label><input id="edit-title" maxlength="200" required>
+      <label for="edit-tags">tags, separated by commas</label><input id="edit-tags" maxlength="820" placeholder="architecture, ideas">
+      <label for="edit-notes">personal notes</label><textarea id="edit-notes" rows="4" maxlength="10000"></textarea>
+      <label for="edit-collection">collection</label><select id="edit-collection"></select>
+      <p id="move-hint" class="hint"></p>
+      <fieldset class="cover-fieldset"><legend>cover</legend><div id="edit-covers" class="media-picker"></div></fieldset>
+      <p id="edit-error" class="error" role="alert"></p>
+      <div class="dialog-footer"><span class="hint">Changes are saved to the collection list too.</span><button id="save-pin-edit" class="primary-button">save pin</button></div>
+    </form>
+  </dialog>
+  <button id="downloads-toggle" class="quiet-button" popovertarget="downloads-panel" aria-label="Downloads" hidden>downloads <span id="download-count"></span></button>
+  <aside id="downloads-panel" popover="auto" aria-labelledby="downloads-title">
+    <div class="dialog-top"><h1 id="downloads-title">downloads</h1><button class="icon-button" popovertarget="downloads-panel" popovertargetaction="hide" aria-label="Close downloads">×</button></div>
+    <p class="hint">Keep collecting while files save. Interrupted tasks can be retried after reopening Papan.</p>
+    <div id="download-list" role="list"></div>
+    <p id="download-announcement" class="visually-hidden" role="status"></p>
+  </aside>
   <dialog id="confirm-dialog" aria-labelledby="confirm-title"><h1 id="confirm-title">remove this?</h1><p id="confirm-message" class="hint"></p><div class="dialog-footer"><button id="confirm-cancel" class="quiet-button">keep it</button><button id="confirm-remove" class="primary-button danger">remove</button></div></dialog>
-  <div id="toast" role="status" hidden></div>
+  <div id="toast" role="status" hidden><span id="toast-message"></span><button id="undo-remove" class="text-button" hidden>undo</button></div>
 </body>
 </html>

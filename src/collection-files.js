@@ -1,7 +1,7 @@
 import { copyFile, lstat, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { collectionName, collectionSettings } from './library.js';
+import { collectionName, collectionSettings, pinDetails } from './library.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const mediaPath = /^[0-9a-f-]{36}\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/;
@@ -26,7 +26,7 @@ export function collectionContents(snapshot, collection, root) {
       }) })) };
 }
 
-function validateContents(data) {
+export function validateContents(data) {
   if (data?.format !== 'papan-collection' || data.version !== 1 || !uuid.test(data.revision) ||
       !uuid.test(data.collection?.id) || !Array.isArray(data.pins)) throw new Error('This is not a supported Papan collection.');
   data.collection = { id: data.collection.id, name: collectionName(data.collection.name), settings: collectionSettings(data.collection.settings), createdAt: data.collection.createdAt };
@@ -41,6 +41,7 @@ function validateContents(data) {
         !Array.isArray(pin.items) || !pin.items.length || pin.items.length > 50 || typeof pin.offline !== 'boolean' ||
         (pin.folder !== undefined && !uuid.test(pin.folder)) || !['page', 'gallery', 'video', 'instagram'].includes(pin.engine)) throw new Error('Invalid pin in collection.');
     ids.add(pin.id);
+    Object.assign(pin, pinDetails(pin));
     checkURL(pin.sourceUrl);
     const itemIds = new Set();
     for (const item of pin.items) {

@@ -1,6 +1,8 @@
 name: Desktop builds
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -25,26 +27,82 @@ jobs:
       - run: npm run setup
       - run: npm run check
       - run: npm test
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:desktop
-      - if: runner.os != 'Linux'
-        run: npm run test:desktop
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:layout
-      - if: runner.os != 'Linux'
-        run: npm run test:layout
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:interactions
-      - if: runner.os != 'Linux'
-        run: npm run test:interactions
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:collections
-      - if: runner.os != 'Linux'
-        run: npm run test:collections
+      - name: Desktop workflows (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a npm run test:desktop
+          xvfb-run -a npm run test:layout
+          xvfb-run -a npm run test:interactions
+          xvfb-run -a npm run test:collections
+          xvfb-run -a npm run test:organization
+      - name: Desktop workflows (Windows and macOS)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          npm run test:desktop
+          npm run test:layout
+          npm run test:interactions
+          npm run test:collections
+          npm run test:organization
       - run: npm run build:tools
+      - name: Native build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config
+      - name: Native build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install nasm pkg-config
+      - name: Native build tools (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: make tar mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-nasm
+          path-type: inherit
+      - name: Build FFmpeg (Linux and macOS)
+        if: runner.os != 'Windows'
+        run: npm run build:ffmpeg
+      - name: Build FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: npm run build:ffmpeg
       - run: npm run package
+      - name: Locate packaged executable
+        shell: bash
+        run: node scripts/packaged-env.mjs
+      - name: Verify packaged app (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a npm run test:desktop
+          xvfb-run -a npm run test:organization
+      - name: Verify packaged app (Windows and macOS)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          npm run test:desktop
+          npm run test:organization
       - uses: actions/upload-artifact@v4
         with:
           name: Papan-${{ runner.os }}-${{ runner.arch }}
-          path: dist/*.tar.gz
+          path: |
+            dist/Papan-*.tar.gz
+            dist/Papan-*.zip
+            dist/Papan-*.sha256
           retention-days: 14
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Papan-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish verified packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" release-assets/* --verify-tag --title "Papan $TAG" --notes-file docs/release-notes.md
