@@ -69,6 +69,7 @@ export async function openDownloadQueue(root, run, publish = () => {}) {
       else if (task.state === 'queued') { task.state = 'cancelled'; task.error = 'Cancelled. You can retry this task.'; await persist(); publish(snapshot()); }
     },
     async retry(id) {
+      await writes;
       const task = tasks.find(item => item.id === id);
       if (!task || !['failed', 'cancelled'].includes(task.state) || active?.id === id) throw new Error('This task cannot be retried yet.');
       const previous = { state: task.state, error: task.error };
