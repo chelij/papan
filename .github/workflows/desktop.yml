@@ -42,6 +42,8 @@ jobs:
       - name: Desktop workflows (Windows and macOS)
         if: runner.os != 'Linux'
         shell: bash
+        env:
+          DEBUG: pw:browser
         run: |
           npm run test:desktop
           npm run test:layout
@@ -49,24 +51,33 @@ jobs:
           npm run test:collections
           npm run test:organization
       - run: npm run build:tools
+      - name: Reuse the pinned FFmpeg build
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ffmpeg*
+            vendor/ffprobe*
+            vendor/native-source/
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-ffmpeg.*') }}
       - name: Native build tools (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y nasm pkg-config
       - name: Native build tools (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: brew install nasm pkg-config
       - name: Native build tools (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           install: make tar mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf mingw-w64-x86_64-nasm
           path-type: inherit
       - name: Build FFmpeg (Linux and macOS)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: npm run build:ffmpeg
       - name: Build FFmpeg (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
         shell: msys2 {0}
         run: npm run build:ffmpeg
       - run: npm run package
@@ -81,6 +92,8 @@ jobs:
       - name: Verify packaged app (Windows and macOS)
         if: runner.os != 'Linux'
         shell: bash
+        env:
+          DEBUG: pw:browser
         run: |
           npm run test:desktop
           npm run test:organization

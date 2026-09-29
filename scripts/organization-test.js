@@ -162,6 +162,18 @@ try {
   assert.equal((await library()).pins[0].notes, edited.notes);
   await expect(page.locator('#viewer-details')).toContainText('inspiration');
   await page.screenshot({ path: 'artifacts/portable-import.png' });
+  await page.getByRole('button', { name: 'remove pin', exact: true }).click();
+  await page.getByRole('button', { name: 'remove', exact: true }).click();
+  await expect(page.locator('.pin')).toHaveCount(0);
+  await app.close(); app = null;
+  await launch(fresh);
+  await page.getByLabel('Open collection', { exact: true }).click();
+  await page.locator('#trash-section summary').click();
+  await page.locator('[data-restore]').click();
+  await expect(page.locator('.pin')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Color studies', exact: true }).click();
+  await expect.poll(() => page.locator('#viewer-media img').evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
+  assert.equal((await library()).pins[0].notes, edited.notes);
   assert.deepEqual(errors, []);
   console.log('Organization checks passed: canvas paste, edit/cover/tags/notes, moves, undo, global filters with closed collections, rollback of stale moves, responsive background queue, cancellation/retry, and portable offline import after source deletion.');
 } finally {
