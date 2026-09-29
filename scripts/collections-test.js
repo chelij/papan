@@ -14,7 +14,7 @@ const fixture = await startFixture({ video: true });
 let app, page, fixtureClosed = false;
 const errors = [];
 async function launch(profile = data) {
-  app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: profile, ELECTRON_RUN_AS_NODE: '' } });
+  app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: profile, ELECTRON_RUN_AS_NODE: undefined } });
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible())).toBe(true);
