@@ -15,14 +15,14 @@ run(['-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--name', 'papa
   '--collect-all', 'gallery_dl', '--collect-all', 'yt_dlp', '--collect-all', 'yt_dlp_ejs', '--collect-all', 'instaloader',
   '--collect-data', 'certifi', 'worker/extract.py']);
 await mkdir(path.join(root, 'vendor', 'source'), { recursive: true });
-await copyFile(path.join(root, 'worker', 'extract.py'), path.join(root, 'vendor', 'source', 'extract.py'));
+for (const file of ['extract.py', 'archive.py', 'LICENSE']) await copyFile(path.join(root, 'worker', file), path.join(root, 'vendor', 'source', file));
 await copyFile(path.join(root, 'requirements.txt'), path.join(root, 'vendor', 'source', 'requirements.txt'));
 // Retain the source distributions and their license files alongside the helper.
-run(['-m', 'pip', 'download', '--no-deps', '--no-binary=:all:', '--dest', 'vendor/source', '-r', 'requirements.txt']);
+run(['scripts/collect-python-sources.py']);
 await writeFile(path.join(root, 'vendor', 'THIRD-PARTY.txt'),
-  'Papan media helper uses gallery-dl (GPL-2.0), yt-dlp (Unlicense), Instaloader (MIT), and their dependencies.\n' +
-  'Upstream source distributions and the helper source are in source/.\n' +
+  'Papan media helper uses gallery-dl (GPL-2.0-only), yt-dlp (Unlicense), Instaloader (MIT), and their dependencies.\n' +
+  'The helper is GPL-2.0-only. Exact installed source distributions, checksums, and the helper source are in source/.\n' +
   'gallery-dl: https://codeberg.org/mikf/gallery-dl\n' +
   'yt-dlp: https://github.com/yt-dlp/yt-dlp\n' +
   'Instaloader: https://github.com/instaloader/instaloader\n' +
-  'FFmpeg and its license are shipped in node_modules/ffmpeg-static.\n');
+  'FFmpeg and ffprobe are in vendor/; matching source, configuration and licenses are in native-source/.\n');

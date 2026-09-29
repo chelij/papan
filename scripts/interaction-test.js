@@ -46,9 +46,9 @@ try {
     return mode.top >= logo.bottom && Math.abs(mode.left - logo.left) < 2;
   }));
   await page.getByRole('tab', { name: 'saved offline', exact: true }).click();
-  await expect(page.locator('#storage-mode')).toHaveText('offline');
+  await expect(page.locator('#storage-mode')).toHaveText('originals saved');
   await page.getByRole('tab', { name: 'inspiration', exact: true }).click();
-  await expect(page.locator('#storage-mode')).toHaveText('online');
+  await expect(page.locator('#storage-mode')).toHaveText('previews cached');
 
   // Exercise native drag events with pointer movement, rather than dispatching a synthetic drop.
   const beforeDrag = await pinGeometry();

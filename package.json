@@ -8,7 +8,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/media.js && node --check src/library.js && node --check src/collection-files.js && node --check src/renderer/app.js && node --check src/preload.cjs",
+    "check": "node scripts/check.mjs",
     "test": "node --test test/*.test.js",
     "test:desktop": "node scripts/desktop-test.js",
     "test:layout": "node scripts/layout-test.js",
@@ -16,7 +16,10 @@
     "test:collections": "node scripts/collections-test.js",
     "package": "node scripts/package.mjs",
     "setup": "node scripts/setup.mjs",
-    "build:tools": "node scripts/build-tools.mjs"
+    "build:tools": "node scripts/build-tools.mjs",
+    "test:organization": "node scripts/organization-test.js",
+    "build:ffmpeg": "node scripts/build-ffmpeg.mjs",
+    "demo": "node scripts/capture-demo.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -29,5 +32,18 @@
     "@electron/packager": "20.3.0",
     "electron": "44.4.5",
     "playwright": "^1.63.0"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "Cheliyono Jenardi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chelij/papan.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chelij/papan/issues"
+  },
+  "homepage": "https://github.com/chelij/papan#readme",
+  "engines": {
+    "node": ">=24.15.0"
   }
 }

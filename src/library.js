@@ -1,16 +1,17 @@
-import { mkdir, readFile, writeFile, rename, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, copyFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-export const defaultSettings = { mode: 'online', density: 3, fit: 'contain', motion: true, slideshowSeconds: 4 };
+export const defaultSettings = { mode: 'online', openAction: 'source', density: 3, fit: 'contain', motion: true, slideshowSeconds: 4 };
 
 export function collectionSettings(input = {}) {
   const settings = { ...defaultSettings, ...input };
+  settings.openAction = input.openAction ?? (settings.mode === 'offline' ? 'saved' : 'source');
   // Keep these mappings while libraries with the earlier column settings are supported.
   if (input.density === undefined && input.columns !== undefined) settings.density = input.columns;
   if (input.density === undefined && input.columns === undefined && input.tileSize !== undefined) settings.density = { small: 4, medium: 3, large: 2 }[input.tileSize];
   if (!['online', 'offline'].includes(settings.mode) || !Number.isInteger(settings.density) || settings.density < 1 || settings.density > 10 ||
-      !['cover', 'contain'].includes(settings.fit) || typeof settings.motion !== 'boolean' ||
+      !['source', 'saved'].includes(settings.openAction) || !['cover', 'contain'].includes(settings.fit) || typeof settings.motion !== 'boolean' ||
       !Number.isInteger(settings.slideshowSeconds) || settings.slideshowSeconds < 1 || settings.slideshowSeconds > 10) {
     throw new Error('Invalid collection settings.');
   }
@@ -20,6 +21,14 @@ export function collectionSettings(input = {}) {
 export function collectionName(value) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > 80) throw new Error('Use a collection name between 1 and 80 characters.');
   return value.trim();
+}
+
+export function pinDetails(input) {
+  if (typeof input.title !== 'string' || !input.title.trim() || input.title.trim().length > 200) throw new Error('Use a pin title between 1 and 200 characters.');
+  const notes = input.notes ?? '', tags = input.tags ?? [];
+  if (typeof notes !== 'string' || notes.length > 10000) throw new Error('Keep notes within 10,000 characters.');
+  if (!Array.isArray(tags) || tags.length > 20 || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.trim().length > 40)) throw new Error('Use up to 20 tags, each between 1 and 40 characters.');
+  return { title: input.title.trim(), notes: notes.trim(), tags: [...new Map(tags.map(tag => [tag.trim().toLowerCase(), tag.trim()])).values()] };
 }
 
 export async function openLibrary(root) {
@@ -38,17 +47,20 @@ export async function openLibrary(root) {
   return {
     root,
     snapshot: () => structuredClone(data),
-    mutate(operation) {
+    mutate(operation, onFailure = async () => {}) {
       const next = queue.then(async () => {
         const draft = structuredClone(data);
-        const result = await operation(draft);
         const temporary = `${file}.${randomUUID()}.tmp`;
-        await writeFile(temporary, `${JSON.stringify(draft, null, 2)}\n`, { mode: 0o600 });
-        try { await copyFile(file, path.join(root, 'library.previous.json')); }
-        catch (error) { if (error.code !== 'ENOENT') throw error; }
-        await rename(temporary, file);
-        data = draft;
-        return result;
+        try {
+          const result = await operation(draft);
+          await writeFile(temporary, `${JSON.stringify(draft, null, 2)}\n`, { mode: 0o600 });
+          try { await copyFile(file, path.join(root, 'library.previous.json')); }
+          catch (error) { if (error.code !== 'ENOENT') throw error; }
+          await rename(temporary, file);
+          data = draft;
+          return result;
+        } catch (error) { await onFailure(); throw error; }
+        finally { await rm(temporary, { force: true }); }
       });
       queue = next.catch(() => {});
       return next;

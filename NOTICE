@@ -1,0 +1,13 @@
+Papan
+Copyright (c) 2026 Cheliyono Jenardi
+
+Except as noted below, Papan is free software under the GNU General Public
+License, version 3 or (at your option) any later version. See LICENSE.
+
+The separate Python program under worker/ is licensed under GPL-2.0-only;
+see worker/LICENSE. It imports gallery-dl (GPL-2.0-only) and runs as a separate
+process. It is not linked into the desktop JavaScript application.
+
+Third-party software retains its own copyright and license. See
+THIRD-PARTY.md and the notices included with packaged builds. Documentation
+screenshots may contain public-domain artwork; see docs/demo/credits.md.

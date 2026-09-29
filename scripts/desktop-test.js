@@ -28,6 +28,7 @@ async function add(resource, { first = false, choose } = {}) {
   if (choose) await choose();
   await page.getByRole('button', { name: 'add to collection' }).click();
   await expect(page.locator('#add-dialog')).not.toBeVisible({ timeout: 30000 });
+  await expect.poll(() => page.evaluate(() => window.papan.downloads().then(tasks => tasks.every(task => task.state === 'completed'))), { timeout: 45000 }).toBe(true);
 }
 try {
   await launch();
@@ -76,7 +77,7 @@ try {
 
   await page.getByLabel('New collection', { exact: true }).click();
   await page.getByLabel('name', { exact: true }).fill('offline references');
-  await page.getByLabel('when a pin is opened').selectOption('offline');
+  await page.getByLabel('media storage').selectOption('offline');
   await page.getByRole('button', { name: 'create collection', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   await add('/video');
@@ -128,10 +129,10 @@ try {
   // Converting an existing online collection materializes its original media.
   await page.getByRole('tab', { name: saved.collections[0].name, exact: true }).click();
   await page.getByLabel('Collection settings', { exact: true }).click();
-  await page.getByLabel('when a pin is opened').selectOption('offline');
+  await page.getByLabel('media storage').selectOption('offline');
   await page.getByRole('button', { name: 'save settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden({ timeout: 15000 });
-  assert.ok((await page.evaluate(() => window.papan.library())).pins[0].offline);
+  await expect.poll(() => page.evaluate(() => window.papan.library().then(data => data.pins[0].offline)), { timeout: 45000 }).toBe(true);
 
   await app.close(); app = null;
   await fixture.close(); fixtureClosed = true;
