@@ -16,6 +16,18 @@ The organization test deliberately holds a media response open and checks that c
 
 The [desktop workflow](../.github/workflows/desktop.yml) repeats source checks on three native OS runners, builds packages, then reruns desktop and organization workflows against the packaged executables. Tagged releases are gated on all jobs. See [Actions](https://github.com/chelij/papan/actions/workflows/desktop.yml) for exact commits, OS versions, and packaged-build results.
 
+## Native release checks
+
+The [v0.1.0 pre-release run](https://github.com/chelij/papan/actions/runs/36526731016) passed on 29 September 2026 at commit `0e0a4ee`, the commit tagged `v0.1.0`.
+
+| Platform | Syntax, unit, and all five source workflows | Native media build and AV1-to-H.264 check | Packaged desktop and organization workflows |
+| --- | --- | --- | --- |
+| Linux x64 (Ubuntu 22.04) | Pass | Pass | Pass |
+| Windows x64 | Pass | Pass | Pass |
+| macOS ARM64 | Pass | Pass | Pass |
+
+The collection-file suite also checks opening the collection browser immediately after closing a tab, before the asynchronous close finishes. That sequence passes from both the Linux source app and its rebuilt package. Tests use disposable profiles, so the personal library remains untouched.
+
 ## Live sources
 
 Earlier checks on this date successfully discovered and downloaded selected public X images/video, a public Instagram album using the unauthenticated fallback, and public YouTube videos. These are sample-level observations, not a guarantee for every link. Optional live checks write their current results to `artifacts/site-checks.json`; they are not a CI requirement.
