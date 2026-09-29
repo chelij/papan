@@ -8,8 +8,8 @@ Local source checks on 29 September 2026 used Linux x64, Node.js 26.8.2, and Ele
 | `npm test` | 11 test groups: URL routing, extraction, atomic persistence, settings, real media processing, saved lists, pin validation, queue restart/cancel/retry, portable round trip and archive rejection | Pass |
 | `test:desktop` | Empty canvas, selection, albums, full-duration video, storage conversion, restart without source server, images/video/text, search and 100+ pins | Pass |
 | `test:layout` | Mixed proportions, stable album frames, sliders, resizing, live settings, missing dimensions | Pass |
-| `test:interactions` | Native pointer drag previews, cancellation, keyboard reorder, tabs, toolbar and responsive controls | Pass |
-| `test:collections` | Native dialog paths, list saves, auto-updates, close/reopen, conflicts, unavailable destinations, retained media | Pass |
+| `test:interactions` | Native pointer drag previews, cancellation, keyboard reorder, tabs, toolbar, responsive controls, settings saved with ×/Escape/Enter and retained after restart, cancelled creation | Pass |
+| `test:collections` | Native dialog paths, list saves, auto-updates, unchanged settings, close/reopen, conflicts, failed-save drafts and discard, retained media | Pass |
 | `test:organization` | Canvas paste, editing, notes/tags/cover/move, global search including closed tabs, undo, two-destination rollback, nonblocking save, cancel/retry, portable import after deleting source media | Pass |
 
 The organization test deliberately holds a media response open and checks that creating a collection still finishes promptly. It also changes the second saved list externally, attempts a move, and confirms neither local metadata nor the first saved list changes. Portable import is checked in a fresh profile after the source server stops and the original local media is removed.

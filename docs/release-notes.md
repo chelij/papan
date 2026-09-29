@@ -1,11 +1,9 @@
-Papan's first public desktop release: a local board for images, videos, and readable articles.
+Collection settings now save automatically when you close them.
 
-- Paste directly onto the canvas, select what to keep, and save in the background.
-- Edit titles and covers, move pins, add tags and notes, and undo removals across restarts.
-- Search every collection, including closed tabs, with media, source, and tag filters.
-- Choose cached previews or downloaded originals separately from click behavior.
-- Save lightweight `.papan` lists or export `.papan.zip` copies containing local media.
-- Adaptive rows, stable album frames, silent video previews, drag and keyboard reordering.
+- Close collection settings with ×, Escape, or Enter to save your changes. The Save settings button has been removed.
+- Invalid settings or failed saves keep your edits visible, with an option to discard them.
+- Opening and closing unchanged settings does not rewrite your saved collection list.
+- New collections still use the Create collection button; closing cancels creation.
 
 Download the archive matching your OS/architecture, extract it, and launch `papan`, `papan.exe`, or `Papan.app`. Keep the extracted folder together. Python and media tools do not need to be installed separately. Each archive has a SHA-256 checksum.
 

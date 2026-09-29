@@ -48,7 +48,7 @@ A portable copy includes what is already on disk. It does not fetch missing orig
 
 ## Layout and motion
 
-Rows adapt to each pin's aspect ratio. **Layout density** runs from 1 (spacious) to 10 (compact), defaulting to 3. **Square frames** is an alternative to adaptive frames. Settings preview live; Save keeps them, while closing restores the saved values.
+Rows adapt to each pin's aspect ratio. **Layout density** runs from 1 (spacious) to 10 (compact), defaulting to 3. **Square frames** is an alternative to adaptive frames. Settings preview live and save automatically when you close collection settings with **×** or **Escape**. There is no Save settings button. If validation or saving fails, the dialog keeps your edits visible so you can correct the problem and close again, or choose **discard changes**. Closing the new-collection dialog cancels creation; use **create collection** to create it.
 
 An album uses one stable frame based on the middle proportions of its visual items. A tied portrait/landscape pair balances toward a square. Slides crop to fill that frame; the cover chooses the starting slide. Missing dimensions have a bounded five-second lookup.
 

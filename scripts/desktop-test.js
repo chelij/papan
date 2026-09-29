@@ -114,7 +114,7 @@ try {
   await page.getByRole('slider', { name: 'layout density', exact: true }).press('Home');
   for (let step = 0; step < 3; step++) await page.getByRole('slider', { name: 'layout density', exact: true }).press('ArrowRight');
   await page.screenshot({ path: 'artifacts/settings.png' });
-  await page.getByRole('button', { name: 'save settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   assert.equal((await page.evaluate(() => window.papan.library())).collections.find(c => c.name === 'offline references').settings.density, 4);
   await page.waitForFunction(() => document.querySelector('.tile-media video')?.paused === true);
@@ -130,7 +130,7 @@ try {
   await page.getByRole('tab', { name: saved.collections[0].name, exact: true }).click();
   await page.getByLabel('Collection settings', { exact: true }).click();
   await page.getByLabel('media storage').selectOption('offline');
-  await page.getByRole('button', { name: 'save settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden({ timeout: 15000 });
   await expect.poll(() => page.evaluate(() => window.papan.library().then(data => data.pins[0].offline)), { timeout: 45000 }).toBe(true);
 

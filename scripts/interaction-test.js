@@ -138,6 +138,8 @@ try {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const originalBox = await page.locator('.pin').first().boundingBox();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'save settings', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'create collection', exact: true })).toHaveCount(0);
   await page.getByRole('slider', { name: 'layout density', exact: true }).press('End');
   await expect.poll(async () => (await page.locator('.pin').first().boundingBox()).width).toBeLessThan(originalBox.width / 2);
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 3, 'preview does not save early');
@@ -146,17 +148,41 @@ try {
   await expect.poll(() => page.locator('.pin').evaluateAll(nodes => nodes.every(node => Math.abs(node.offsetWidth - node.offsetHeight) <= 1))).toBe(true);
   await page.screenshot({ path: 'artifacts/settings-live-preview.png' });
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
-  await expect(page.locator('#grid')).toHaveAttribute('data-fit', 'contain');
-  await expect.poll(async () => Math.abs((await page.locator('.pin').first().boundingBox()).width - originalBox.width)).toBeLessThan(1);
-  await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('End');
-  await page.getByRole('button', { name: 'save settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
+  await expect(page.locator('#grid')).toHaveAttribute('data-fit', 'cover');
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 10);
+
+  // Invalid settings remain editable; Enter and Escape both save valid edits.
+  await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
+  await page.getByLabel('name', { exact: true }).fill('');
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
+  await expect(page.locator('#settings-dialog')).toBeVisible();
+  assert.equal(await page.locator('#collection-name').evaluate(input => input.validity.valueMissing), true);
+  await expect(page.getByRole('button', { name: 'discard changes', exact: true })).toBeVisible();
+  await page.getByLabel('name', { exact: true }).fill('renamed inspiration');
+  await page.getByLabel('name', { exact: true }).press('Enter');
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+  await expect(page.getByRole('tab', { name: 'renamed inspiration', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
+  await page.getByLabel('name', { exact: true }).fill('inspiration');
+  await page.getByLabel('media fit', { exact: true }).selectOption('contain');
+  await page.getByRole('slider', { name: 'layout density', exact: true }).press('ArrowLeft');
+  await page.getByRole('slider', { name: 'layout density', exact: true }).press('Escape');
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+
+  const collectionCount = (await page.evaluate(() => window.papan.library())).collections.length;
+  await page.getByRole('button', { name: 'New collection', exact: true }).click();
+  await page.getByLabel('name', { exact: true }).fill('cancel this new collection');
+  await expect(page.getByRole('button', { name: 'create collection', exact: true })).toBeVisible();
+  await page.getByLabel('name', { exact: true }).press('Escape');
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+  assert.equal((await page.evaluate(() => window.papan.library())).collections.length, collectionCount);
   await app.close(); app = null;
   await launch();
   await expect.poll(pinOrder).toEqual(expected);
   await expect.poll(() => page.getByRole('tab').allTextContents()).toEqual(['inspiration', 'ideas', 'saved offline']);
-  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 10);
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 9);
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.fit, 'contain');
   await page.screenshot({ path: 'artifacts/toolbar-and-dragging.png' });
   for (const width of [1200, 781, 560]) {
     await page.setViewportSize({ width, height: 740 });
@@ -166,7 +192,7 @@ try {
   }
   assert.deepEqual(errors, []);
   await writeFile('artifacts/interaction-check.json', JSON.stringify({ date: new Date().toISOString(), status: 'passed', packaged: Boolean(process.env.PAPAN_EXECUTABLE) }, null, 2));
-  console.log('Interactions passed: button toolbar, status position, native pin/tab dragging, keyboard reordering, cancel/click behavior, validation, search, live layout preview/cancel, and persisted order/settings after restart.');
+  console.log('Interactions passed: button toolbar, status position, native pin/tab dragging, keyboard reordering, validation, search, live layout preview, settings saved on close/Escape/Enter, cancelled creation, and persisted order/settings after restart.');
 } catch (error) {
   if (page && !page.isClosed()) await page.screenshot({ path: 'artifacts/interaction-failure.png' });
   throw error;

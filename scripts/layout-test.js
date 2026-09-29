@@ -80,7 +80,7 @@ try {
   await expect(page.locator('#slideshow-value')).toHaveText('10 s');
   await seconds.press('Home');
   await expect(seconds).toHaveAttribute('aria-valuetext', '1 second');
-  await page.getByRole('button', { name: 'save settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   const spacious = await geometry(1280);
   // Use the native desktop viewport for pointer coordinates after responsive emulation.
@@ -97,7 +97,7 @@ try {
   await expect(density).toHaveValue('10');
   await expect(page.locator('#density-value')).toHaveText('10');
   await page.screenshot({ path: 'artifacts/sliders.png' });
-  await page.getByRole('button', { name: 'save settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   const compact = await geometry(1280);
   assert.ok(spacious.averageArea > compact.averageArea * 2, 'density changes the tile sizes');
@@ -108,7 +108,8 @@ try {
   await expect(page.getByRole('slider', { name: 'slideshow interval', exact: true })).toHaveValue('1');
   await page.getByRole('slider', { name: 'layout density', exact: true }).press('Home');
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
-  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 10);
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 1);
 
   // Seed only the temporary test library to exercise legacy/mixed album metadata.
   const library = await page.evaluate(() => window.papan.library());
@@ -146,10 +147,11 @@ try {
   await page.getByLabel('media fit', { exact: true }).selectOption('cover');
   await expect.poll(albumFrames).toEqual(albums.map(() => 1));
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
-  await expect.poll(albumFrames).toEqual(frames);
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+  await expect.poll(albumFrames).toEqual(albums.map(() => 1));
   assert.deepEqual(errors, []);
   await writeFile('artifacts/layout-check.json', JSON.stringify({ date: new Date().toISOString(), status: 'passed', wide, narrow, spacious, compact, sliders: [1, 10], albums: albums.map(({ title, ratio }) => ({ title, ratio })) }, null, 2));
-  console.log('Adaptive layout passed: uncropped single media, responsive rows, 1–10 sliders, persisted settings, shared album frames, missing dimensions, and square-frame preview.');
+  console.log('Adaptive layout passed: uncropped single media, responsive rows, 1–10 sliders, settings saved on close, shared album frames, missing dimensions, and persisted square frames.');
 } catch (error) {
   if (page && !page.isClosed()) await page.screenshot({ path: 'artifacts/layout-failure.png', fullPage: true });
   throw error;
