@@ -28,7 +28,9 @@ if ! command -v nasm >/dev/null 2>&1; then
   x264_flags+=(--disable-asm)
   ffmpeg_flags+=(--disable-x86asm)
 fi
-export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+# Only discover our pinned libraries. An inherited native Windows path list
+# cannot be appended to an MSYS path list (their separators differ).
+export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
 meson setup "$work/dav1d-build" "$work/dav1d" --prefix="$prefix" --libdir=lib --default-library=static -Denable_tools=false -Denable_tests=false -Denable_asm="$assembly"
 meson compile -C "$work/dav1d-build" -j "$jobs"
 meson install -C "$work/dav1d-build"
@@ -37,7 +39,12 @@ cd "$work/x264"
 make -j"$jobs"
 make install
 cd "$work/ffmpeg"
-./configure "${ffmpeg_flags[@]}"
+pkg-config --modversion dav1d x264
+pkg-config --static --cflags --libs dav1d x264
+if ! ./configure "${ffmpeg_flags[@]}"; then
+  tail -n 100 ffbuild/config.log
+  exit 1
+fi
 make -j"$jobs"
 cp "ffmpeg$extension" "$root/vendor/ffmpeg$extension"
 cp "ffprobe$extension" "$root/vendor/ffprobe$extension"
