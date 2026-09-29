@@ -13,7 +13,7 @@ await mkdir('artifacts', { recursive: true });
 let app, page, fixtureClosed = false;
 const errors = [];
 async function launch() {
-  app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [root], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: '' }, timeout: 30000 });
+  app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [root], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: undefined }, timeout: 30000 });
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => Boolean(window.papan));

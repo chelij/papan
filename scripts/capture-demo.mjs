@@ -33,7 +33,7 @@ try {
   pins.push({ ...structuredClone(pins[2]), id: randomUUID(), collectionId: collections[1].id, tags: ['color', 'composition'], notes: 'Study the balance between the flowers and the open background.' });
   await mkdir(path.join(profile, 'library'), { recursive: true });
   await writeFile(path.join(profile, 'library/library.json'), JSON.stringify({ version: 1, collections, pins }));
-  app = await electron.launch({ args: [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: profile, ELECTRON_RUN_AS_NODE: '' } });
+  app = await electron.launch({ args: [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: profile, ELECTRON_RUN_AS_NODE: undefined } });
   const page = await app.firstWindow();
   await page.setViewportSize({ width: 1440, height: 720 });
   await expect(page.locator('.pin')).toHaveCount(catalog.length);

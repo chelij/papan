@@ -22,7 +22,7 @@ let app, page, stopped = false;
 const errors = [];
 async function launch(profile) {
   app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()],
-    env: { ...process.env, PAPAN_DATA_DIR: profile, PAPAN_PYTHON_WORKER: process.env.PAPAN_EXECUTABLE ? '' : '1', ELECTRON_RUN_AS_NODE: '' } });
+    env: { ...process.env, PAPAN_DATA_DIR: profile, PAPAN_PYTHON_WORKER: process.env.PAPAN_EXECUTABLE ? '' : '1', ELECTRON_RUN_AS_NODE: undefined } });
   page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
   await expect(page.locator('#start-collecting')).toBeVisible();
   await app.evaluate(({ dialog }) => {

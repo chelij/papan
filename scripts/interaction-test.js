@@ -28,7 +28,7 @@ const pinOrder = () => page.locator('.pin').evaluateAll(nodes => nodes.map(node 
 const pinGeometry = () => page.locator('.pin').evaluateAll(nodes => nodes.map(node => ({ id: node.dataset.pinId, left: node.style.left, top: node.style.top, width: node.style.width, height: node.style.height })).sort((a, b) => a.id.localeCompare(b.id)));
 const savedPinOrder = () => page.evaluate(id => window.papan.library().then(library => library.pins.filter(pin => pin.collectionId === id).map(pin => pin.id)), collections[0].id);
 async function launch() {
-  app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: '' } });
+  app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: undefined } });
   page = await app.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible())).toBe(true);
