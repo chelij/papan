@@ -5,7 +5,7 @@ const mediaURL = (pin, item, original = false) => item.previewFile || item.previ
   ? `papan://media/${pin.id}/${item.id}/${original ? 'original' : 'preview'}?v=${encodeURIComponent(pin.folder || '')}` : item.url;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let library = { collections: [], pins: [] }, collectionId = null, inspection = null;
-let selected = new Set(), coverId = null, addRequest = null, settingsRequest = null;
+let selected = new Set(), coverId = null, addRequest = null, settingsRequest = null, settingsOriginal = null;
 let creatingCollection = false, shown = 0, filtered = [], viewerPin = null, viewerIndex = 0;
 let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0;
 let dragState = null, dragFrame = 0, reorderPending = false;
@@ -432,6 +432,7 @@ function openSettings(create = false) {
   layoutPreview = null;
   const current = create ? { name: '', settings: defaults } : collection();
   if (!current) return;
+  settingsOriginal = create ? null : structuredClone(current);
   $('settings-title').textContent = create ? 'a new collection' : 'collection settings';
   $('collection-name').value = current.name;
   $('collection-name').placeholder = 'name this corner of the internet';
@@ -449,7 +450,8 @@ function openSettings(create = false) {
   $('collection-destination').textContent = current.destination || 'saved in Papan · no external destination yet';
   $('choose-destination').textContent = current.destination ? 'save as…' : 'choose destination…';
   $('library-folder').textContent = current.destination ? 'open destination folder ↗' : 'open local library folder ↗';
-  $('save-settings').textContent = create ? 'create collection' : 'save settings';
+  $('create-collection').hidden = !create;
+  $('discard-settings').hidden = true;
   $('settings-error').textContent = '';
   $('settings-status').textContent = '';
   $('settings-dialog').classList.toggle('preview-settings', !create);
@@ -463,29 +465,45 @@ $('settings-form').onsubmit = async event => {
   event.preventDefault();
   if (settingsRequest) return;
   const requestId = crypto.randomUUID();
-  settingsRequest = requestId;
-  const input = { id: collectionId, requestId, name: $('collection-name').value, settings: {
+  const input = { id: settingsOriginal?.id, requestId, name: $('collection-name').value, settings: {
     mode: $('collection-mode').value, openAction: $('open-action').value, density: Number($('layout-density').value), fit: $('media-fit').value,
     motion: $('motion').checked, slideshowSeconds: Number($('slide-seconds').value),
   } };
+  if (!creatingCollection && input.name.trim() === settingsOriginal.name && Object.keys(input.settings).every(key => input.settings[key] === settingsOriginal.settings[key])) {
+    $('settings-dialog').close();
+    return;
+  }
+  settingsRequest = requestId;
   $('settings-error').textContent = '';
   $('settings-status').textContent = 'saving collection…';
   for (const control of $('settings-form').elements) control.disabled = true;
   try {
     const background = !creatingCollection && input.settings.mode === 'offline' && library.pins.some(pin => pin.collectionId === input.id && !pin.offline);
     const result = await (creatingCollection ? api.createCollection(input) : background ? api.enqueueCollection(input) : api.updateCollection(input));
+    $('search').value = '';
+    await refresh(background ? input.id : result.id);
     settingsRequest = null;
     $('settings-dialog').close();
-    $('search').value = '';
-    await refresh(background ? collectionId : result.id);
     if (background) toast('downloading originals in the background');
-  } catch (error) { if ($('settings-dialog').open) errorAt('settings-error', error); }
+  } catch (error) {
+    if ($('settings-dialog').open) { errorAt('settings-error', error); $('discard-settings').hidden = creatingCollection; }
+  }
   finally {
     settingsRequest = null;
     for (const control of $('settings-form').elements) control.disabled = false;
     $('settings-status').textContent = '';
   }
 };
+
+function closeSettings() {
+  if (settingsRequest) return;
+  if (creatingCollection) $('settings-dialog').close();
+  else $('settings-form').requestSubmit();
+}
+
+$('settings-form').addEventListener('invalid', () => { $('discard-settings').hidden = creatingCollection; }, true);
+$('discard-settings').onclick = () => $('settings-dialog').close();
+$('settings-dialog').addEventListener('cancel', event => { event.preventDefault(); closeSettings(); });
 
 function openViewer(pin) {
   viewerPin = pin;
@@ -818,7 +836,7 @@ $('add-link').onclick = () => openAdd();
 $('new-collection').onclick = () => openSettings(true);
 $('collection-settings').onclick = () => openSettings();
 $('link-form').onsubmit = event => { event.preventDefault(); findMedia(); };
-for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => $(button.dataset.close).close();
+for (const button of document.querySelectorAll('[data-close]')) button.onclick = () => button.dataset.close === 'settings-dialog' ? closeSettings() : $(button.dataset.close).close();
 $('add-dialog').addEventListener('close', () => {
   if (addRequest) api.cancel(addRequest).catch(() => {});
   addRequest = null;

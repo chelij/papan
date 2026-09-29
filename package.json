@@ -1,7 +1,7 @@
 {
   "name": "papan",
   "productName": "Papan",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A personal board for the things you find on the web.",
   "private": true,
   "type": "module",

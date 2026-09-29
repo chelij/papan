@@ -68,11 +68,16 @@ try {
   await expect(page.locator('#collection-destination')).toHaveText(file);
   await page.getByLabel('name', { exact: true }).fill('saved references');
   await page.getByRole('slider', { name: 'layout density', exact: true }).press('End');
-  await page.getByRole('button', { name: 'save settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   assert.equal((await manifest()).collection.name, 'saved references');
   assert.equal((await manifest()).collection.settings.density, 10);
   assert.equal(JSON.parse(await readFile(path.join(destination, 'references.previous.papan'))).collection.name, 'references');
+  const unchanged = await manifest();
+  await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
+  await page.getByLabel('name', { exact: true }).press('Escape');
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+  assert.deepEqual(await manifest(), unchanged, 'closing unchanged settings does not rewrite the saved list');
   const pins = (await snapshot()).pins;
   await page.locator('.tile-main').first().press('Alt+ArrowRight');
   await expect.poll(async () => (await manifest()).pins.map(pin => pin.id)).toEqual([pins[1].id, pins[0].id]);
@@ -93,12 +98,15 @@ try {
   const moved = path.join(directory, 'unplugged');
   await rename(destination, moved);
   const beforeFailure = await snapshot();
-  const failure = await page.evaluate(async collection => {
-    try { await window.papan.updateCollection({ id: collection.id, name: 'must not commit', settings: collection.settings, requestId: crypto.randomUUID() }); return ''; }
-    catch (error) { return error.message; }
-  }, beforeFailure.collections[0]);
-  assert.match(failure, /unavailable/);
+  await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
+  await page.getByLabel('name', { exact: true }).fill('must not commit');
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
+  await expect(page.locator('#settings-dialog')).toBeVisible();
+  await expect(page.locator('#settings-error')).toContainText('unavailable');
+  await expect(page.getByLabel('name', { exact: true })).toHaveValue('must not commit');
   assert.deepEqual(await snapshot(), beforeFailure);
+  await page.getByRole('button', { name: 'discard changes', exact: true }).click();
+  await expect(page.locator('#settings-dialog')).toBeHidden();
   await page.getByRole('button', { name: 'Close saved references', exact: true }).click();
   await expect(page.getByRole('tab')).toHaveCount(0);
   await page.getByRole('button', { name: 'Open collection', exact: true }).click();
