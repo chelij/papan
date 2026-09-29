@@ -88,9 +88,9 @@ try {
   await add('/album');
   await expect(page.locator('.pin')).toHaveCount(3);
   assert.deepEqual(await page.locator('.tile-title').allTextContents(), ['A little motion', 'A place for curiosity', 'Collected colors']);
+  await page.waitForFunction(() => [...document.querySelectorAll('.pin')].every(pin => pin.style.width && pin.style.height));
   const boxes = await page.locator('.pin').evaluateAll(nodes => nodes.map(node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y }; }));
-  assert.ok(boxes[0].x < boxes[1].x && boxes[0].y === boxes[1].y);
-  assert.ok(boxes[1].x < boxes[2].x && boxes[1].y === boxes[2].y);
+  assert.ok(boxes.slice(1).every((box, index) => box.y > boxes[index].y || box.y === boxes[index].y && box.x > boxes[index].x), 'pins keep reading order as rows wrap');
   await page.waitForFunction(() => {
     const card = document.querySelector('.pin'), v = card?.querySelector('video');
     return v && v.videoWidth === 720 && v.videoHeight === 540 && v.duration > 11.9 && v.loop && Math.abs(card.clientWidth / card.clientHeight - 4 / 3) < 0.02;

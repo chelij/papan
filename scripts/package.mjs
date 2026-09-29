@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto';
 const metadata = JSON.parse(await readFile('package.json', 'utf8'));
 await access(path.join('vendor', process.platform === 'win32' ? 'papan-extract.exe' : 'papan-extract'));
 await access(path.join('vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'));
+const codecs = spawnSync(process.execPath, ['scripts/check-codecs.mjs'], { stdio: 'inherit' });
+if (codecs.status !== 0) throw new Error('Release codec verification failed.');
 const packages = JSON.parse(await readFile('package-lock.json', 'utf8')).packages;
 const inventory = [];
 await mkdir('vendor/licenses', { recursive: true });

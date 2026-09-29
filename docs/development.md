@@ -32,7 +32,7 @@ npm run build:ffmpeg
 npm run package
 ```
 
-The first command creates a standalone Python helper and retains exact source distributions and checksums. The second builds pinned FFmpeg and x264 sources with dependency autodetection and network protocols disabled. Papan downloads remote media itself and uses FFmpeg on local files. Build sources, configuration, and notices accompany the binary. Without NASM, the build falls back to portable C implementations, which may be slower.
+The first command creates a standalone Python helper and retains exact source distributions and checksums. The second builds pinned FFmpeg, x264, and dav1d sources with dependency autodetection and network protocols disabled. Papan downloads remote media itself and uses FFmpeg on local files. Build sources, configuration, and notices accompany the binary. Without NASM, the build falls back to portable C implementations, which may be slower.
 
 The final command packages the app and writes `Papan-0.1.0-<platform>-<arch>.tar.gz` on Linux/macOS or `.zip` on Windows, plus a SHA-256 checksum. The archive includes media tools, production dependencies, licensing information, and helper/native source archives. Documentation, screenshots, development tests, and sample profiles are excluded.
 
