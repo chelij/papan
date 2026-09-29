@@ -37,11 +37,11 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| Linux x64 | Source-app workflows verified locally. Native release builds are checked in CI. |
-| Windows x64 | Native build and packaged-app checks configured in CI; see the release's results. |
-| macOS Apple silicon | Native build and packaged-app checks configured in CI; see the release's results. |
+| Linux x64 | Source and packaged-app checks passed on Ubuntu 22.04. |
+| Windows x64 | Source and packaged-app checks passed on the native Windows runner. |
+| macOS Apple silicon | Source and packaged-app checks passed on the native macOS ARM64 runner. |
 
-This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
+All three platforms passed the [v0.1.0 build checks](https://github.com/chelij/papan/actions/runs/36526731016). This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
 ## Run from source
 
