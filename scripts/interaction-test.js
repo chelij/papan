@@ -98,6 +98,7 @@ try {
   assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), [], 'dragging does not open a source link');
 
   // Cancelling an in-progress drag must not persist an order or activate a pin.
+  await page.evaluate(() => { window.scrollTo(0, 0); return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
   const beforeCancel = await pinGeometry();
   const source = await page.locator('.pin').first().boundingBox(), cancelTarget = await page.locator('.pin').nth(4).boundingBox();
   await page.mouse.move(source.x + 25, source.y + 25);
