@@ -18,7 +18,7 @@ The [desktop workflow](../.github/workflows/desktop.yml) repeats source checks o
 
 ## Native release checks
 
-The [v0.1.0 pre-release run](https://github.com/chelij/papan/actions/runs/36526731016) passed on 29 September 2026 at commit `0e0a4ee`, the commit tagged `v0.1.0`.
+The [v0.1.0 pre-release run](https://github.com/chelij/papan/actions/runs/36526731016) passed on 29 September 2026 at commit `0e0a4ee`, the commit tagged `v0.1.0`. The [tagged release run](https://github.com/chelij/papan/actions/runs/36528360984) also passed every build and test before publishing all three native archives. Their GitHub upload digests match the published SHA-256 files.
 
 | Platform | Syntax, unit, and all five source workflows | Native media build and AV1-to-H.264 check | Packaged desktop and organization workflows |
 | --- | --- | --- | --- |

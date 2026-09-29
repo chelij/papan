@@ -42,7 +42,7 @@ Set `PAPAN_EXECUTABLE` to the packaged executable and rerun `test:desktop` and `
 
 The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
 
-Before tagging, update `package.json`, the lockfile, and [release notes](release-notes.md), then inspect the passing main-branch run. Signed installers, macOS notarization, and an updater are not implemented. Keep platform claims tied to recorded runner evidence.
+Before tagging, update `package.json`, the lockfile, the README's versioned download links, and [release notes](release-notes.md), then inspect the passing main-branch run. Signed installers, macOS notarization, and an updater are not implemented. Keep platform claims tied to recorded runner evidence.
 
 ## README demo
 
