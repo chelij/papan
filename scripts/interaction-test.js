@@ -100,7 +100,7 @@ try {
   // Cancelling an in-progress drag must not persist an order or activate a pin.
   await page.evaluate(() => { window.scrollTo(0, 0); return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
   const beforeCancel = await pinGeometry();
-  const source = await page.locator('.pin').first().boundingBox(), cancelTarget = await page.locator('.pin').nth(4).boundingBox();
+  const source = await page.locator('.pin').first().boundingBox(), cancelTarget = await page.locator('.pin').nth(2).boundingBox();
   await page.mouse.move(source.x + 25, source.y + 25);
   await page.mouse.down();
   await page.mouse.move(source.x + 55, source.y + 55, { steps: 8 });
@@ -135,6 +135,7 @@ try {
   await expect(page.locator('.pin')).toHaveCount(pins.length);
   await search.press('Escape');
 
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const originalBox = await page.locator('.pin').first().boundingBox();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
   await page.getByRole('slider', { name: 'layout density', exact: true }).press('End');
