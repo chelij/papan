@@ -1,11 +1,11 @@
 import { _electron as electron, expect } from 'playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { startFixture } from '../test/fixture.js';
 
-const directory = await mkdtemp(path.join(os.tmpdir(), 'papan-collections-'));
+const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'papan-collections-')));
 const data = path.join(directory, 'profile'), secondData = path.join(directory, 'second-profile');
 const destination = path.join(directory, 'lists');
 await mkdir(destination);

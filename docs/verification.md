@@ -31,4 +31,4 @@ Earlier checks on this date successfully discovered and downloaded selected publ
 
 Fixture tests prove Papan's workflows without depending on live site availability. A native runner verifies that OS/architecture combination, not every Linux distribution, macOS version, or Windows desktop. Signed installation, notarization, automatic updates, multi-writer synchronization, and crash consistency across multiple external volumes are not claimed.
 
-FFmpeg is used only on downloaded local files; a prior third-party static build crashed while reading a remote stream. Release builds use pinned source and include the corresponding FFmpeg/x264 archives and configuration. Dependency inventories are included with packages; see [third-party notices](../THIRD-PARTY.md).
+FFmpeg is used only on downloaded local files; a prior third-party static build crashed while reading a remote stream. Release builds use pinned source and include the corresponding FFmpeg/x264/dav1d archives and configuration. Dependency inventories are included with packages; see [third-party notices](../THIRD-PARTY.md).

@@ -11,4 +11,4 @@ Download the archive matching your OS/architecture, extract it, and launch `papa
 
 The release workflow runs source and packaged-app checks on the native Linux, Windows, and macOS runners before publishing. These are unsigned early builds; Windows signing and macOS notarization are not configured. Linux builds target the Ubuntu 22.04 runner baseline. Public source extraction may fail when a platform blocks unauthenticated access. No sample library, account, cloud service, or browser-cookie import is included.
 
-Desktop code is GPL-3.0-or-later; the separate helper is GPL-2.0-only. Packages retain dependency notices, exact Python sources, and FFmpeg/x264 sources and build configuration. See `THIRD-PARTY.md` in the repository for details.
+Desktop code is GPL-3.0-or-later; the separate helper is GPL-2.0-only. Packages retain dependency notices, exact Python sources, and FFmpeg/x264/dav1d sources and build configuration. See `THIRD-PARTY.md` in the repository for details.
