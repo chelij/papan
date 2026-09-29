@@ -1,0 +1,33 @@
+{
+  "name": "papan",
+  "productName": "Papan",
+  "version": "0.1.0",
+  "description": "A personal board for the things you find on the web.",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/media.js && node --check src/library.js && node --check src/collection-files.js && node --check src/renderer/app.js && node --check src/preload.cjs",
+    "test": "node --test test/*.test.js",
+    "test:desktop": "node scripts/desktop-test.js",
+    "test:layout": "node scripts/layout-test.js",
+    "test:interactions": "node scripts/interaction-test.js",
+    "test:collections": "node scripts/collections-test.js",
+    "package": "node scripts/package.mjs",
+    "setup": "node scripts/setup.mjs",
+    "build:tools": "node scripts/build-tools.mjs"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "cheerio": "1.2.0",
+    "ffmpeg-static": "^5.3.0",
+    "jsdom": "^30.1.1",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.4.5",
+    "playwright": "^1.63.0"
+  }
+}
