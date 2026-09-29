@@ -37,11 +37,11 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.1.0/Papan-0.1.0-linux-x64.tar.gz) | Source and packaged-app checks passed on Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.1.0/Papan-0.1.0-win32-x64.zip) | Source and packaged-app checks passed on the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.1.0/Papan-0.1.0-darwin-arm64.tar.gz) | Source and packaged-app checks passed on the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.1.1/Papan-0.1.1-linux-x64.tar.gz) | Source and packaged-app checks passed on Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.1.1/Papan-0.1.1-win32-x64.zip) | Source and packaged-app checks passed on the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.1.1/Papan-0.1.1-darwin-arm64.tar.gz) | Source and packaged-app checks passed on the native macOS ARM64 runner. |
 
-All three platforms passed the [v0.1.0 build checks](https://github.com/chelij/papan/actions/runs/36526731016). This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
+All three platforms passed the [v0.1.1 build checks](https://github.com/chelij/papan/actions/runs/36540499279). This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
 ## Run from source
 
