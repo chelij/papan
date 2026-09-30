@@ -24,7 +24,7 @@ Good references disappear into browser tabs and download folders. Papan keeps im
 <details>
 <summary>See pin editing and library-wide search</summary>
 
-![Editing a pin's title, tags, notes, collection, and cover](docs/demo/edit.png)
+![Editing a pin's title, tags, notes, collection, board previews, and cover](docs/demo/edit.png)
 
 ![Searching across collections, with each result showing its collection](docs/demo/search.png)
 
@@ -38,11 +38,11 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-linux-x64.tar.gz) | Source and packaged-app checks run on Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-win32-x64.zip) | Source and packaged-app checks run on the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-darwin-arm64.tar.gz) | Source and packaged-app checks run on the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-linux-x64.tar.gz) | Source and packaged-app checks passed on Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-win32-x64.zip) | Source and packaged-app checks passed on the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-darwin-arm64.tar.gz) | Source and packaged-app checks passed on the native macOS ARM64 runner. |
 
-Releases are published only after the [build workflow](.github/workflows/desktop.yml) passes native source and packaged-app checks on all three platforms. This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
+The [v0.2.0 pre-release run](https://github.com/chelij/papan/actions/runs/36671197665) and [tagged release run](https://github.com/chelij/papan/actions/runs/36671799461) passed native source and packaged-app checks on all three platforms. This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
 ## Run from source
 

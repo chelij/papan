@@ -1,6 +1,6 @@
 # Verification
 
-The v0.2.0 local preflight on 30 September 2026 passed syntax checks, all 23 unit test groups, and all seven renderer suites. Tests use disposable profiles and local fixture servers; the personal library is never a test fixture. The pinned extraction helper uses gallery-dl 1.32.14, yt-dlp 2026.08.19, and Instaloader 4.15.3.
+The v0.2.0 local preflight on 30 September 2026 passed syntax checks, all 23 unit test groups, all seven renderer suites, and all five native source desktop suites. Native local windows used a private Xvfb display, verified before interaction. Tests use disposable profiles and local fixture servers; the personal library is never a test fixture. The pinned extraction helper uses gallery-dl 1.32.14, yt-dlp 2026.08.19, and Instaloader 4.15.3.
 
 ## Source checks
 
@@ -36,7 +36,13 @@ Encryption unit tests cover incorrect passwords, altered manifests and media chu
 
 The [desktop workflow](../.github/workflows/desktop.yml) repeats syntax, unit, and all five source desktop suites on Linux x64, Windows x64, and macOS ARM64. Linux also runs all seven renderer suites using the runner's Google Chrome. Every platform builds its native helper/media tools, checks AV1-to-H.264 processing, packages the app, and reruns the desktop and organization suites against the packaged executable. Tagged releases publish only after every build passes. [Recorded runs](https://github.com/chelij/papan/actions/workflows/desktop.yml) identify the exact commit and runner versions.
 
-The previous [v0.1.1 pre-release run](https://github.com/chelij/papan/actions/runs/36540499279) and [tagged release run](https://github.com/chelij/papan/actions/runs/36541095426) passed all native source and packaged checks on all three platforms. That evidence covers v0.1.1; the v0.2.0 changes require their own passing native run before tagging. No native test window is opened on the primary local monitor.
+The [v0.2.0 pre-release run](https://github.com/chelij/papan/actions/runs/36671197665) passed on 30 September 2026 at commit `5b5871d`, the commit tagged `v0.2.0`. The [tagged release run](https://github.com/chelij/papan/actions/runs/36671799461) repeated every build and test successfully before publishing all three native archives. Both runs also passed all seven Linux renderer suites. All published archive upload digests match the accompanying SHA-256 files; the checksum-file digests were verified too. No native test window was opened on the primary local monitor.
+
+| Platform | Syntax, unit, and all five source workflows | Native media build and AV1-to-H.264 check | Packaged desktop and organization workflows |
+| --- | --- | --- | --- |
+| Linux x64 (Ubuntu 22.04) | Pass | Pass | Pass |
+| Windows x64 | Pass | Pass | Pass |
+| macOS ARM64 | Pass | Pass | Pass |
 
 ## Live sources
 
