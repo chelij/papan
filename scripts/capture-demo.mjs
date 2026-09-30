@@ -41,7 +41,7 @@ try {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.mouse.move(0, 950);
   await page.screenshot({ path: 'docs/demo/board.png' });
-  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.setViewportSize({ width: 1440, height: 1080 });
   await page.getByLabel(`Details for ${catalog[0].title}`, { exact: true }).click();
   await page.getByRole('button', { name: 'edit pin', exact: true }).click();
   await page.mouse.move(0, 950);

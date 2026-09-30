@@ -12,7 +12,7 @@ import { exportBundle, importBundle } from '../src/portable.js';
 process.env.PAPAN_PYTHON_WORKER = '1';
 const until = async predicate => { for (let i = 0; i < 400; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('State did not settle'); };
 
-test('pin metadata validates bounded notes/tags and legacy storage keeps its click behavior', () => {
+test('pin metadata validates bounded notes/tags and legacy click settings remain readable', () => {
   assert.deepEqual(pinDetails({ title: ' a pin ', tags: [' Design ', 'design', 'ideas'], notes: ' remember this ' }), { title: 'a pin', tags: ['design', 'ideas'], notes: 'remember this' });
   assert.equal(collectionSettings({ mode: 'offline' }).openAction, 'saved');
   assert.equal(collectionSettings({ mode: 'offline', openAction: 'source' }).openAction, 'source');
@@ -33,14 +33,15 @@ test('download queue persists failures, cancels active work, retries, and recove
     await until(() => queue.snapshot()[0]?.state === 'failed');
     assert.match(queue.snapshot()[0].error, /source unavailable/);
     await queue.retry(failed);
-    await until(() => queue.snapshot()[0]?.state === 'completed');
+    await until(() => queue.snapshot().length === 0);
+    await until(async () => JSON.parse(await readFile(path.join(root, 'downloads.json'))).length === 0);
     assert.equal(attempts, 2);
     const slow = await queue.add('collection', { id: 'slow' }, 'cancel me');
     await until(async () => { interrupted = JSON.parse(await readFile(path.join(root, 'downloads.json'))); return interrupted.at(-1).state === 'running'; });
     await queue.cancel(slow);
     await until(() => queue.snapshot().at(-1).state === 'cancelled');
     await queue.dismiss(slow);
-    assert.equal(queue.snapshot().length, 1);
+    assert.equal(queue.snapshot().length, 0);
     queue.stop();
     await writeFile(path.join(root, 'downloads.json'), JSON.stringify(interrupted));
     const recovered = await openDownloadQueue(root, () => { throw new Error('must not run automatically'); });

@@ -67,15 +67,15 @@ try {
   const narrow = await geometry(640);
   assert.ok(narrow.rows > wide.rows, 'narrow windows reflow into more rows');
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
-  const density = page.getByRole('slider', { name: 'layout density', exact: true });
+  const size = page.getByRole('slider', { name: 'preview size', exact: true });
   const seconds = page.getByRole('slider', { name: 'slideshow interval', exact: true });
-  for (const slider of [density, seconds]) {
+  for (const slider of [size, seconds]) {
     await expect(slider).toHaveAttribute('min', '1');
     await expect(slider).toHaveAttribute('max', '10');
   }
-  await expect(density).toHaveValue('3');
-  await density.press('Home');
-  await expect(page.locator('#density-value')).toHaveText('1');
+  await expect(size).toHaveValue('8');
+  await size.press('End');
+  await expect(page.locator('#size-value')).toHaveText('10');
   await seconds.press('End');
   await expect(page.locator('#slideshow-value')).toHaveText('10 s');
   await seconds.press('Home');
@@ -88,25 +88,25 @@ try {
   await devtools.send('Emulation.clearDeviceMetricsOverride');
   await devtools.detach();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
-  await expect(density).toHaveValue('1');
-  const track = await density.boundingBox();
-  await page.mouse.move(track.x + 6, track.y + track.height / 2);
+  await expect(size).toHaveValue('10');
+  const track = await size.boundingBox();
+  await page.mouse.move(track.x + track.width - 6, track.y + track.height / 2);
   await page.mouse.down();
-  await page.mouse.move(track.x + track.width - 2, track.y + track.height / 2, { steps: 8 });
+  await page.mouse.move(track.x + 2, track.y + track.height / 2, { steps: 8 });
   await page.mouse.up();
-  await expect(density).toHaveValue('10');
-  await expect(page.locator('#density-value')).toHaveText('10');
+  await expect(size).toHaveValue('1');
+  await expect(page.locator('#size-value')).toHaveText('1');
   await page.screenshot({ path: 'artifacts/sliders.png' });
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   const compact = await geometry(1280);
-  assert.ok(spacious.averageArea > compact.averageArea * 2, 'density changes the tile sizes');
+  assert.ok(spacious.averageArea > compact.averageArea * 2, 'higher preview size makes larger tiles');
   await app.close(); app = null;
   await launch();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
-  await expect(page.getByRole('slider', { name: 'layout density', exact: true })).toHaveValue('10');
+  await expect(page.getByRole('slider', { name: 'preview size', exact: true })).toHaveValue('1');
   await expect(page.getByRole('slider', { name: 'slideshow interval', exact: true })).toHaveValue('1');
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('Home');
+  await page.getByRole('slider', { name: 'preview size', exact: true }).press('End');
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 1);

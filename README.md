@@ -13,11 +13,12 @@ Good references disappear into browser tabs and download folders. Papan keeps im
 ## What you can do
 
 - **Paste to collect.** Choose individual media, a cover, and a destination collection. Public X posts, YouTube videos, Instagram posts, direct media, and accessible articles use dedicated extraction paths.
-- **Browse visually.** Adaptive rows preserve individual media proportions. Albums keep a stable frame; visible videos play silently. Drag pins and tabs into order, or use the keyboard.
-- **Make it yours.** Rename pins, change covers, move them between collections, and add tags and personal notes. Undo removals immediately or restore them after restarting.
-- **Find it again.** Search titles, notes, tags, and saved text across every collection, including closed tabs. Narrow results by media type, source, and tag.
-- **Keep collecting while files save.** A background queue shows progress, cancellation, failures, and retry. Downloading originals does not block library edits.
-- **Choose what stays on disk.** Cache smaller previews or download originals. Choose separately whether clicking a pin opens its source or its saved media.
+- **Browse visually.** Adaptive rows preserve individual media proportions. Choose saved items for board previews and set separate start/end ranges for each video. Albums keep a stable frame; visible videos play silently.
+- **Make it yours.** Rename pins, change covers, move them between collections, and add tags and personal notes. Drag pins onto collection tabs, create destinations while editing, and undo removals after restarting.
+- **Find it again.** Search titles, notes, tags, and saved text across unlocked collections, including closed tabs. Narrow results by media type, source, and tag.
+- **Keep collecting while files save.** A background queue shows progress, cancellation, failures, and retry. Successful tasks disappear automatically. Open temporary tabs with Ctrl/Cmd+T; collections are saved only when you add a link.
+- **Choose what stays on disk.** Cache smaller previews in online mode or download originals in offline mode. Pins open in Papan first, with their original page available from the viewer.
+- **Protect a collection.** Encrypt its contents and saved media with a password. Lock it from the toolbar; protected saves and portable exports stay encrypted.
 - **Take a collection with you.** Save a lightweight `.papan` list, or export a `.papan.zip` with its local media and metadata for another device.
 
 <details>
@@ -37,11 +38,11 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.1.1/Papan-0.1.1-linux-x64.tar.gz) | Source and packaged-app checks passed on Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.1.1/Papan-0.1.1-win32-x64.zip) | Source and packaged-app checks passed on the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.1.1/Papan-0.1.1-darwin-arm64.tar.gz) | Source and packaged-app checks passed on the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-linux-x64.tar.gz) | Source and packaged-app checks run on Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-win32-x64.zip) | Source and packaged-app checks run on the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.2.0/Papan-0.2.0-darwin-arm64.tar.gz) | Source and packaged-app checks run on the native macOS ARM64 runner. |
 
-All three platforms passed the [v0.1.1 build checks](https://github.com/chelij/papan/actions/runs/36540499279). This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
+Releases are published only after the [build workflow](.github/workflows/desktop.yml) passes native source and packaged-app checks on all three platforms. This is an early release. Builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
 ## Run from source
 

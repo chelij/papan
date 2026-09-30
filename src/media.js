@@ -223,7 +223,7 @@ export async function materialize(pin, root, offline, signal, progress = () => {
   const folder = randomUUID();
   const stage = path.join(root, 'staging', folder);
   const destination = path.join(root, 'media', folder);
-  await mkdir(stage, { recursive: true });
+  await mkdir(stage, { recursive: true, mode: 0o700 });
   try {
     const media = pin.items.filter(item => item.kind !== 'text');
     let extracted = [];

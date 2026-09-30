@@ -1,7 +1,7 @@
 {
   "name": "papan",
   "productName": "Papan",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A personal board for the things you find on the web.",
   "private": true,
   "type": "module",
@@ -18,6 +18,13 @@
     "setup": "node scripts/setup.mjs",
     "build:tools": "node scripts/build-tools.mjs",
     "test:organization": "node scripts/organization-test.js",
+    "test:previews": "node scripts/preview-test.js",
+    "test:playback": "node scripts/playback-test.js",
+    "test:slideshow": "node scripts/slideshow-test.js",
+    "test:protection": "node scripts/protection-test.js",
+    "test:settings": "node scripts/settings-test.js",
+    "test:tabs": "node scripts/tabs-test.js",
+    "test:history": "node scripts/history-test.js",
     "build:ffmpeg": "node scripts/build-ffmpeg.mjs",
     "demo": "node scripts/capture-demo.mjs"
   },
