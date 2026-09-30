@@ -6,11 +6,13 @@ import path from 'node:path';
 import ffmpeg from 'ffmpeg-static';
 import sharp from 'sharp';
 
-export async function startFixture({ video = false } = {}) {
+export async function startFixture({ video = false, extraVideo = false } = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'papan-fixture-'));
   if (video) {
-    const result = spawnSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x960:rate=20', '-t', '12', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', path.join(dir, 'clip.mp4')]);
-    if (result.status) throw new Error(result.stderr.toString());
+    for (const [name, duration] of [['clip.mp4', '12'], ...(extraVideo ? [['clip-short.mp4', '6']] : [])]) {
+      const result = spawnSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x960:rate=20', '-t', duration, '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', path.join(dir, name)]);
+      if (result.status) throw new Error(result.stderr.toString());
+    }
   }
   const wideImage = await sharp({ create: { width: 3200, height: 1600, channels: 3, background: '#c99375' } }).png().toBuffer();
   const frames = await Promise.all(['red', 'blue'].map(background => sharp({ create: { width: 32, height: 24, channels: 3, background } }).png().toBuffer()));
@@ -31,8 +33,8 @@ export async function startFixture({ video = false } = {}) {
     } else if (pathname === '/wide.png' || pathname === '/animated.gif') {
       response.writeHead(200, { 'Content-Type': pathname.endsWith('.png') ? 'image/png' : 'image/gif' });
       response.end(pathname.endsWith('.png') ? wideImage : animation);
-    } else if (pathname === '/clip.mp4' && video) {
-      const buffer = await readFile(path.join(dir, 'clip.mp4'));
+    } else if ((pathname === '/clip.mp4' || extraVideo && pathname === '/clip-short.mp4') && video) {
+      const buffer = await readFile(path.join(dir, path.basename(pathname)));
       const range = request.headers.range?.match(/bytes=(\d+)-(\d*)/);
       if (range) {
         const start = Number(range[1]), end = range[2] ? Math.min(Number(range[2]), buffer.length - 1) : buffer.length - 1;

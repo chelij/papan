@@ -63,7 +63,11 @@ try {
   });
   await app.evaluate(({ shell }) => { globalThis.papanOpened = []; shell.openExternal = async url => { globalThis.papanOpened.push(url); }; });
   await page.locator('.tile-main').click();
+  await expect(page.locator('#viewer')).toBeVisible();
+  assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), []);
+  await page.getByRole('button', { name: 'open original ↗', exact: true }).click();
   assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), [`${fixture.url}/album`]);
+  await page.getByRole('button', { name: 'Close viewer', exact: true }).click();
 
   await add('/mixed');
   const mixed = page.locator('.pin').nth(1);
@@ -75,12 +79,16 @@ try {
   await expect(mixed.locator('img')).toBeVisible({ timeout: 10000 });
   await expect.poll(() => mixed.evaluate(card => card.clientWidth / card.clientHeight)).toBeCloseTo(Math.sqrt((4 / 3) * .5), 2);
 
-  await page.getByLabel('New collection', { exact: true }).click();
-  await page.getByLabel('name', { exact: true }).fill('offline references');
-  await page.getByLabel('media storage').selectOption('offline');
-  await page.getByRole('button', { name: 'create collection', exact: true }).click();
-  await expect(page.locator('#settings-dialog')).toBeHidden();
+  await page.getByLabel('New tab', { exact: true }).click();
+  await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText('new tab');
   await add('/video');
+  await page.getByLabel('Collection settings', { exact: true }).click();
+  await page.getByLabel('name', { exact: true }).fill('offline references');
+  await page.getByRole('tab', { name: 'Storage', exact: true }).click();
+  await page.getByLabel('media storage').selectOption('offline');
+  await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
+  await expect(page.locator('#settings-dialog')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.papan.downloads().then(tasks => tasks.every(task => !['queued', 'running'].includes(task.state)))), { timeout: 45000 }).toBe(true);
   const video = page.locator('.tile-media video');
   await expect(video).toBeVisible();
   await page.waitForFunction(() => { const v = document.querySelector('.tile-media video'); return v && v.muted && !v.paused && v.currentTime > 0.15; }, null, { timeout: 15000 });
@@ -111,8 +119,8 @@ try {
   await page.getByLabel('autoplay & slideshows').check();
   await page.waitForFunction(time => { const video = document.querySelector('.tile-media video'); return video && !video.paused && video.currentTime !== time; }, previewTime);
   await page.getByLabel('autoplay & slideshows').uncheck();
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('Home');
-  for (let step = 0; step < 3; step++) await page.getByRole('slider', { name: 'layout density', exact: true }).press('ArrowRight');
+  await page.getByRole('slider', { name: 'preview size', exact: true }).press('End');
+  for (let step = 0; step < 3; step++) await page.getByRole('slider', { name: 'preview size', exact: true }).press('ArrowLeft');
   await page.screenshot({ path: 'artifacts/settings.png' });
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
@@ -129,6 +137,7 @@ try {
   // Converting an existing online collection materializes its original media.
   await page.getByRole('tab', { name: saved.collections[0].name, exact: true }).click();
   await page.getByLabel('Collection settings', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Storage', exact: true }).click();
   await page.getByLabel('media storage').selectOption('offline');
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden({ timeout: 15000 });
@@ -177,7 +186,7 @@ try {
   await page.locator('.pin').last().scrollIntoViewIfNeeded();
   await expect(page.locator('.pin')).toHaveCount(104);
   assert.deepEqual(errors, []);
-  console.log('Desktop checks passed: adaptive rows, stable album frames with cropped slides, full video playback past eight seconds, album advance after video ends, density and slideshow sliders, offline restart/viewer, and continuous scrolling.');
+  console.log('Desktop checks passed: adaptive rows, stable album frames with cropped slides, full video playback past eight seconds, album advance after video ends, preview size and slideshow sliders, offline restart/viewer, and continuous scrolling.');
 } catch (error) {
   if (page && !page.isClosed()) { await page.screenshot({ path: 'artifacts/desktop-failure.png' }); console.error(await page.locator('body').innerText()); }
   throw error;

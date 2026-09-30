@@ -16,9 +16,30 @@ npm run test:layout
 npm run test:interactions
 npm run test:collections
 npm run test:organization
+npm run test:previews
+npm run test:playback
+npm run test:slideshow
+npm run test:protection
+npm run test:settings
+npm run test:tabs
+npm run test:history
 ```
 
 Desktop suites launch a real Electron window. Run them sequentially on an interactive desktop, or prefix each command with `xvfb-run -a` on a headless Linux runner. Screenshots and results go into ignored `artifacts/`.
+
+`test:previews` uses isolated headless Chromium and local videos of different lengths to check preview selection, both slider handles, boundary frames, independent video ranges, clip playback, cancellation, validation, and the queued-move payload. It stubs the preload boundary, so it does not replace native Electron checks. Set `PAPAN_CHROMIUM` to a Chromium executable; the Linux default is `/usr/bin/chromium`.
+
+`test:playback` runs the renderer in the same isolated browser against the production file-response code over loopback HTTP. It checks byte responses, forward/backward seeking, native timeline clicks, and resumed playback from a saved MP4 after the original source server stops. The preload API is stubbed; it does not exercise Electron's custom protocol registration.
+
+`test:slideshow` holds an image response past the slideshow interval and samples rendered frames to check that the previous image stays visible. It also checks slide order/timing, broken images, collection switches during loading, and video-to-image transitions. It uses the actual renderer, SVG/PNG/GIF images and decoded video in isolated headless Chromium, with the preload API stubbed.
+
+`test:protection` uses the actual renderer, library, encryption, queue, and ranged media response in headless Chromium. It checks password setup/change/removal, immediate unlock popups for tabs and file opening, cancellation during unlock, locked search/media, restart, video seeking, and automatic queue cleanup. IPC is stubbed and the `papan:` media scheme is mapped to loopback HTTP. Unit tests separately exercise authentication, corruption, recovery, file ownership, cross-collection moves, and portable encrypted copies. [Encryption format](encryption.md).
+
+`test:settings` checks the compact sections, keyboard navigation, draft preservation, autosave from each section, validation of hidden fields, failure recovery, creation, and short-window scrolling in isolated headless Chromium. It also captures each settings section. The preload boundary is stubbed.
+
+`test:tabs` checks temporary tabs, shortcuts, ordering, close/reopen behavior, password cancellation, and narrow toolbar layouts in isolated headless Chromium. Unused tabs, cancelled inspections, invalid metadata, and queue-registration failures must leave the library byte-for-byte unchanged. The first save must create exactly one collection with defaults in the same tab position. The test uses the actual library and production pin-preparation, enqueue/rollback, and reorder handlers from `main.js`; IPC, extraction, downloads, and file picking are stubbed.
+
+`test:history` checks clearing and failed saves, persistence after reopening the library, the All collections view, reopening ordinary and encrypted collections, and new recent entries after closing. It verifies that collection metadata, pins, removal history, saved media, encrypted vaults, and external collection files survive clearing. The renderer runs in isolated headless Chromium with the production clear/close/reopen handlers and real library/crypto; IPC, the file picker, and main-process save/cache wrappers are stubbed.
 
 `node scripts/site-checks.mjs` optionally inspects public sample posts without login. It is excluded from required checks because remote platforms change availability. Inspect its reported results instead of assuming a site name guarantees support.
 
@@ -40,7 +61,7 @@ Set `PAPAN_EXECUTABLE` to the packaged executable and rerun `test:desktop` and `
 
 ## Releases
 
-The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
+The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform and all seven isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
 
 Before tagging, update `package.json`, the lockfile, the README's versioned download links, and [release notes](release-notes.md), then inspect the passing main-branch run. Signed installers, macOS notarization, and an updater are not implemented. Keep platform claims tied to recorded runner evidence.
 

@@ -3,19 +3,23 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 // A single media worker keeps CPU/disk use bounded. Library commits remain independent.
-export async function openDownloadQueue(root, run, publish = () => {}) {
+export async function openDownloadQueue(root, run, publish = () => {}, codec = { encode: task => task, decode: task => task }) {
   const file = path.join(root, 'downloads.json');
   let tasks = [], writes = Promise.resolve(), active = null, stopped = false;
   try {
     tasks = JSON.parse(await readFile(file, 'utf8'));
-    if (!Array.isArray(tasks) || tasks.some(task => !task.id || !['save', 'collection', 'pin'].includes(task.kind) || !task.payload)) throw new Error('Invalid download queue.');
+    if (!Array.isArray(tasks) || tasks.some(task => !task.id || !['save', 'collection', 'pin'].includes(task.kind) || (!task.payload && !task.encrypted))) throw new Error('Invalid download queue.');
   } catch (error) { if (error.code !== 'ENOENT') throw new Error(`Could not read the download queue. Your files were preserved. ${error.message}`); }
+  tasks = tasks.filter(task => task.state !== 'completed');
   for (const task of tasks) if (['queued', 'running'].includes(task.state)) {
     task.state = 'failed'; task.error = 'Interrupted when Papan closed. Retry to continue.';
   }
-  const snapshot = () => tasks.map(({ payload, ...task }) => structuredClone(task));
-  const persist = () => {
-    const contents = JSON.stringify(tasks, null, 2);
+  const snapshot = () => tasks.map(value => {
+    const { payload, encrypted, ...task } = codec.decode(value);
+    return structuredClone(task);
+  });
+  const persist = (data, encoded = false) => {
+    const contents = JSON.stringify(encoded ? tasks : tasks.map(task => codec.encode(task, data)), null, 2);
     const next = writes.then(async () => {
       const temporary = `${file}.${randomUUID()}.tmp`;
       try { await writeFile(temporary, contents, { mode: 0o600 }); await rename(temporary, file); }
@@ -26,8 +30,10 @@ export async function openDownloadQueue(root, run, publish = () => {}) {
   };
   async function pump() {
     if (active || stopped) return;
-    const task = tasks.find(item => item.state === 'queued');
+    let task = tasks.find(item => item.state === 'queued');
     if (!task) return;
+    const decoded = codec.decode(task, true);
+    tasks[tasks.indexOf(task)] = decoded; task = decoded;
     const controller = new AbortController();
     active = { id: task.id, controller };
     task.state = 'running'; task.progress = 'starting…'; task.error = '';
@@ -41,18 +47,29 @@ export async function openDownloadQueue(root, run, publish = () => {}) {
       task.state = controller.signal.aborted ? 'cancelled' : 'failed';
       task.error = controller.signal.aborted ? 'Cancelled. You can retry this task.' : error.message;
     } finally {
+      const completed = task.state === 'completed' ? snapshot().find(item => item.id === task.id) : null;
+      if (completed) tasks = tasks.filter(item => item !== task);
       // A failed status write must not re-run an operation that already committed.
+      tasks = tasks.map(value => codec.encode(value));
       try { await persist(); } catch (error) { task.error = `Queue status could not be saved: ${error.message}`; }
-      active = null; publish(snapshot());
+      active = null; publish(completed ? [...snapshot(), completed] : snapshot());
       if (!stopped) void pump();
     }
   }
   await persist();
   return {
     snapshot,
+    publish: () => publish(snapshot()),
+    async recode(data) {
+      await writes;
+      const before = tasks;
+      tasks = tasks.map(task => codec.encode(task, data));
+      try { await persist(data); } catch (error) { tasks = before; throw error; }
+      return async () => { tasks = before; await persist(undefined, true); };
+    },
     async add(kind, payload, title) {
       if (tasks.filter(task => ['queued', 'running'].includes(task.state)).length >= 100) throw new Error('The download queue is full. Wait for a task to finish.');
-      if (tasks.some(task => ['queued', 'running', 'failed', 'cancelled'].includes(task.state) && task.kind === kind &&
+      if (tasks.map(task => codec.decode(task)).filter(task => task.payload).some(task => ['queued', 'running', 'failed', 'cancelled'].includes(task.state) && task.kind === kind &&
           (kind === 'save' ? task.payload.pin.sourceUrl === payload.pin.sourceUrl && task.payload.pin.collectionId === payload.pin.collectionId : task.payload.id === payload.id))) {
         throw new Error('This item already has a task. Retry, cancel, or dismiss it from Downloads.');
       }
@@ -70,8 +87,10 @@ export async function openDownloadQueue(root, run, publish = () => {}) {
     },
     async retry(id) {
       await writes;
-      const task = tasks.find(item => item.id === id);
+      let task = tasks.find(item => item.id === id);
       if (!task || !['failed', 'cancelled'].includes(task.state) || active?.id === id) throw new Error('This task cannot be retried yet.');
+      const decoded = codec.decode(task, true);
+      tasks[tasks.indexOf(task)] = decoded; task = decoded;
       const previous = { state: task.state, error: task.error };
       task.state = 'queued'; task.error = ''; task.progress = 'waiting';
       try { await persist(); } catch (error) { Object.assign(task, previous); throw error; }

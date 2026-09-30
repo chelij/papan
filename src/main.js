@@ -1,58 +1,109 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from 'electron';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile, rename, mkdir, realpath, rm, stat } from 'node:fs/promises';
-import { openLibrary, newCollection, collectionName, collectionSettings, pinDetails } from './library.js';
+import { readFile, writeFile, rename, mkdir, realpath, rm, copyFile, stat } from 'node:fs/promises';
+import { openLibrary, newCollection, collectionName, collectionSettings, pinDetails, pinPreviews } from './library.js';
 import { collectionContents, saveCollectionFile, readCollectionFile, mediaLocation } from './collection-files.js';
 import { inspectLink, materialize, removeMedia, extractWorker, webURL } from './media.js';
 import { openDownloadQueue } from './download-queue.js';
 import { exportBundle, importBundle } from './portable.js';
+import { isVault, vaultHeader } from './vault.js';
+import { fileResponse } from './file-response.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName('Papan');
+app.commandLine.appendSwitch('disable-http-cache');
 if (process.env.PAPAN_DATA_DIR) app.setPath('userData', path.resolve(process.env.PAPAN_DATA_DIR));
 protocol.registerSchemesAsPrivileged([{ scheme: 'papan', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const inspections = new Map(), jobs = new Map();
-let library, window, downloads;
+let library, window, downloads, protectionBusy = false;
 
 async function changeLibrary(operation, saveId = null) {
   const restorations = [];
-  return library.mutate(async draft => {
-    const before = library.snapshot();
-    const result = await operation(draft);
-    for (const collection of draft.collections) {
-      if (!collection.destination) continue;
-      const previous = before.collections.find(item => item.id === collection.id);
-      if (collection.id === saveId || collection.destination !== previous?.destination ||
-          JSON.stringify(collectionContents(draft, collection, library.root)) !== JSON.stringify(previous ? collectionContents(before, previous, library.root) : null)) {
-        for (const file of [collection.destination, `${collection.destination.slice(0, -path.extname(collection.destination).length)}.previous.papan`]) {
-          let contents = null;
-          try { contents = await readFile(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-          restorations.push({ file, contents });
-        }
-        collection.destinationRevision = await saveCollectionFile(library.root, draft, collection);
+  let restoreDownloads, preserveRestorations = false;
+  try {
+    return await library.mutate(operation, async () => {
+      const failures = [];
+      try { await restoreDownloads?.(); } catch (error) { failures.push(error); }
+      for (const { file, contents, copy } of restorations.reverse()) {
+        const temporary = `${file}.${randomUUID()}.rollback`;
+        try {
+          if (copy) await rename(copy, file);
+          else if (contents === null) await rm(file, { force: true });
+          else { await writeFile(temporary, contents, { mode: 0o600 }); await rename(temporary, file); }
+        } catch (error) {
+          preserveRestorations = true;
+          const recovery = path.join(library.root, 'recovery');
+          await mkdir(recovery, { recursive: true, mode: 0o700 });
+          const saved = path.join(recovery, `${randomUUID()}-${path.basename(file)}`);
+          try {
+            if (copy) { await copyFile(copy, saved); await rm(copy, { force: true }); }
+            else if (contents) await writeFile(saved, contents, { mode: 0o600 });
+          } catch (recoveryError) {
+            preserveRestorations = true;
+            failures.push(new Error(`Keep any .rollback files beside the collection destination. Recovery could not finish: ${recoveryError.message}`));
+          }
+          failures.push(new Error(`The destination became unavailable during recovery. Preserved copies are in ${recovery}. ${error.message}`));
+        } finally { await rm(temporary, { force: true }).catch(() => {}); }
       }
-      retainReferencedMedia(draft, draft.pins.filter(pin => pin.collectionId === collection.id));
-    }
-    return result;
-  }, async () => {
-    for (const { file, contents } of restorations.reverse()) {
-      const temporary = `${file}.${randomUUID()}.rollback`;
-      try {
-        if (contents === null) await rm(file, { force: true });
-        else { await writeFile(temporary, contents, { mode: 0o600 }); await rename(temporary, file); }
-      } catch (error) {
-        const recovery = path.join(library.root, 'recovery');
-        await mkdir(recovery, { recursive: true });
-        if (contents) await writeFile(path.join(recovery, `${randomUUID()}-${path.basename(file)}`), contents, { mode: 0o600 });
-        throw new Error(`The collection destination became unavailable during recovery. Preserved copies are in ${recovery}. ${error.message}`);
-      } finally { await rm(temporary, { force: true }).catch(() => {}); }
-    }
-  });
+      if (failures.length) throw new AggregateError(failures, failures.map(error => error.message).join(' '));
+    }, async (draft, before) => {
+      if (protectionBusy) restoreDownloads = await downloads.recode(draft);
+      for (const collection of draft.collections) {
+        if (!collection.destination) continue;
+        const previous = before.collections.find(item => item.id === collection.id);
+        if (collection.id === saveId || collection.destination !== previous?.destination ||
+            JSON.stringify(collectionContents(draft, collection, library.root)) !== JSON.stringify(previous ? collectionContents(before, previous, library.root) : null)) {
+          for (const file of [collection.destination, `${collection.destination.slice(0, -path.extname(collection.destination).length)}.previous.papan`]) {
+            let contents = null, copy;
+            try {
+              if (await isVault(file)) { copy = `${file}.${randomUUID()}.rollback`; await copyFile(file, copy); }
+              else { if ((await stat(file)).size > 64 * 1024 * 1024) throw new Error('Invalid collection destination.'); contents = await readFile(file); }
+            } catch (error) { if (error.code !== 'ENOENT') throw error; }
+            restorations.push({ file, contents, copy });
+          }
+          collection.destinationRevision = await saveCollectionFile(library.root, draft, collection);
+        }
+        retainReferencedMedia(draft, draft.pins.filter(pin => pin.collectionId === collection.id));
+      }
+    });
+  } finally {
+    for (const { copy } of restorations) if (copy && !preserveRestorations) await rm(copy, { force: true }).catch(() => {});
+  }
+}
+
+async function protectCollection(input, action) {
+  if (jobs.size || downloads.snapshot().some(task => ['queued', 'running'].includes(task.state))) throw new Error('Wait for downloads and other saves to finish before changing the lock.');
+  protectionBusy = true;
+  try {
+    await session.defaultSession.clearCache();
+    const result = await changeLibrary(draft => action(draft, input.id));
+    inspections.clear();
+    downloads.publish();
+    return result === undefined ? library.publicSnapshot() : result;
+  } finally { protectionBusy = false; }
 }
 
 async function openCollectionFile(file) {
+  if (jobs.size || downloads.snapshot().some(task => ['queued', 'running'].includes(task.state))) throw new Error('Wait for downloads and other saves to finish before opening a collection file.');
+  if (await isVault(file)) {
+    const destination = path.join(await realpath(path.dirname(file)), path.basename(file));
+    const header = await vaultHeader(file), vault = `${randomUUID()}.papan`;
+    const local = path.join(library.root, 'vaults', vault);
+    await copyFile(file, local);
+    try {
+      return await library.mutate(draft => {
+        const existing = draft.collections.find(c => c.destination === destination);
+        if (existing) library.protection.lock(draft, existing.id);
+        const collection = { id: existing?.id || randomUUID(), name: existing?.name || path.basename(file, path.extname(file)).slice(0, 80) || 'encrypted collection',
+          destination, destinationRevision: header.revision, vault: { file: vault }, closed: false, createdAt: existing?.createdAt || new Date().toISOString() };
+        draft.collections = draft.collections.filter(c => c.id !== collection.id).concat(collection);
+        draft.pins = draft.pins.filter(pin => pin.collectionId !== collection.id);
+        return collection;
+      });
+    } catch (error) { await rm(local, { force: true }); throw error; }
+  }
   if (file.toLowerCase().endsWith('.zip')) {
     const imported = await importBundle(library.root, file);
     try {
@@ -62,7 +113,7 @@ async function openCollectionFile(file) {
   return library.mutate(async draft => {
     const loaded = await readCollectionFile(file, draft);
     const index = draft.collections.findIndex(item => item.id === loaded.collection.id);
-    if (index === -1) draft.collections.push(loaded.collection); else draft.collections[index] = loaded.collection;
+    if (index === -1) draft.collections.push(loaded.collection); else { library.protection.lock(draft, loaded.collection.id); draft.collections[index] = loaded.collection; }
     draft.pins = draft.pins.filter(pin => pin.collectionId !== loaded.collection.id).concat(loaded.pins);
     retainReferencedMedia(draft, loaded.pins);
     return loaded.collection;
@@ -70,24 +121,28 @@ async function openCollectionFile(file) {
 }
 
 async function preparePin(input) {
+  if (input.newCollection !== undefined && typeof input.newCollection !== 'boolean' || input.newCollection && input.collectionId) throw new Error('Invalid collection selection.');
   const inspection = inspections.get(input.inspectionId);
   if (!inspection || Date.now() - inspection.time > 30 * 60 * 1000) throw new Error('This preview expired. Paste the link again.');
   if (!Array.isArray(input.selectedIds) || !input.selectedIds.length || input.selectedIds.length > 50 || new Set(input.selectedIds).size !== input.selectedIds.length) throw new Error('Select between 1 and 50 items.');
   const data = inspection.data, items = data.items.filter(item => input.selectedIds.includes(item.id));
   if (items.length !== input.selectedIds.length) throw new Error('The selected items were not found.');
+  const details = pinDetails({ ...input, title: input.title?.trim() || data.title });
   const snapshot = library.snapshot();
-  let target = input.collectionId ? snapshot.collections.find(item => item.id === input.collectionId) : snapshot.collections.find(item => !item.closed);
+  let target = input.newCollection ? null : input.collectionId ? snapshot.collections.find(item => item.id === input.collectionId) : snapshot.collections.find(item => !item.closed && (!item.vault || library.protection.isUnlocked(item.id)));
   if (input.collectionId && !target || target?.closed) throw new Error('Open the collection before adding a pin.');
-  if (!target) target = await changeLibrary(draft => { const created = newCollection('collection 01'); draft.collections.push(created); return created; });
+  if (!target) target = await changeLibrary(draft => { const created = newCollection('new collection'); draft.collections.push(created); return created; });
+  library.requireUnlocked(target.id);
   if (snapshot.pins.some(pin => pin.collectionId === target.id && pin.sourceUrl === data.sourceUrl)) throw new Error('This link is already in this collection.');
   return { pin: { id: randomUUID(), collectionId: target.id, sourceUrl: data.sourceUrl, engine: data.engine,
-    ...pinDetails({ ...input, title: input.title?.trim() || data.title }), author: data.author, text: data.text, items,
+    ...details, author: data.author, text: data.text, items,
     coverId: items.some(item => item.id === input.coverId) ? input.coverId : items[0].id, createdAt: new Date().toISOString() } };
 }
 
 async function savePin({ pin }, signal, progress) {
   const snapshot = library.snapshot(), target = snapshot.collections.find(item => item.id === pin.collectionId);
   if (!target) throw new Error('The destination collection was removed.');
+  library.requireUnlocked(target.id);
   if (snapshot.pins.some(item => item.collectionId === pin.collectionId && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in this collection.');
   const saved = await materialize(pin, library.root, target.settings.mode === 'offline', signal, progress);
   try {
@@ -107,6 +162,7 @@ async function updateCollection(input, signal, progress = () => {}) {
   const settings = collectionSettings(input.settings), name = collectionName(input.name);
   const snapshot = library.snapshot(), current = snapshot.collections.find(item => item.id === input.id);
   if (!current) throw new Error('Collection not found.');
+  library.requireUnlocked(current.id);
   const converted = [];
   try {
     const pins = settings.mode === 'offline' ? snapshot.pins.filter(pin => pin.collectionId === input.id && !pin.offline) : [];
@@ -137,7 +193,9 @@ async function updatePin(input, signal, progress) {
   const details = pinDetails(input), snapshot = library.snapshot();
   const pin = snapshot.pins.find(pin => pin.id === input.id), target = snapshot.collections.find(item => item.id === input.collectionId);
   if (!pin || !target) throw new Error('The pin or collection no longer exists.');
+  library.requireUnlocked(pin.collectionId); library.requireUnlocked(target.id);
   if (!pin.items.some(item => item.id === input.coverId)) throw new Error('Choose a cover from this pin.');
+  const previews = pinPreviews(input.previews === undefined ? pin.previews : input.previews, pin.items, input.coverId);
   if (snapshot.pins.some(item => item.id !== pin.id && item.collectionId === target.id && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in the destination collection.');
   let saved;
   try {
@@ -151,6 +209,7 @@ async function updatePin(input, signal, progress) {
       if (draft.pins.some(item => item.id !== pin.id && item.collectionId === target.id && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in the destination collection.');
       if (saved) Object.assign(current, { items: saved.items, folder: saved.folder, offline: true });
       Object.assign(current, details, { coverId: input.coverId, collectionId: target.id });
+      if (previews !== undefined) current.previews = previews;
       destination.closed = false;
       if (pin.collectionId !== target.id) { draft.pins.splice(draft.pins.indexOf(current), 1); draft.pins.push(current); }
       return { pin: current, collectionId: target.id };
@@ -183,13 +242,30 @@ async function job(id, action) {
 function handle(name, action) {
   ipcMain.handle(`papan:${name}`, async (event, input) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== 'papan://app/index.html') return { ok: false, error: 'Untrusted request.' };
-    try { return { ok: true, value: await action(input) }; }
+    try {
+      if (protectionBusy && !['library', 'downloads', 'cancel'].includes(name)) throw new Error('Wait for the collection lock to finish updating.');
+      const value = await action(input);
+      const sanitize = item => {
+        if (!item || typeof item !== 'object') return item;
+        if (Array.isArray(item)) return item.map(sanitize);
+        const result = Object.fromEntries(Object.entries(item).filter(([key]) => key !== 'vault').map(([key, value]) => [key, sanitize(value)]));
+        if (item.vault) {
+          if (item.kind) result.encrypted = true;
+          else { result.protected = true; result.locked = !library.protection.isUnlocked(item.id); }
+        }
+        return result;
+      };
+      return { ok: true, value: sanitize(value) };
+    }
     catch (error) { return { ok: false, error: error.name === 'AbortError' ? 'Cancelled.' : error.message }; }
   });
 }
 
 function installHandlers() {
-  handle('library', () => library.snapshot());
+  handle('library', () => library.publicSnapshot());
+  handle('unlock-collection', input => protectCollection(input, (draft, id) => library.protection.unlock(draft, id, input.password)));
+  handle('lock-collection', input => protectCollection(input, (draft, id) => library.protection.lock(draft, id)));
+  handle('protect-collection', input => protectCollection(input, (draft, id) => library.protection.setPassword(draft, id, input.password, input.currentPassword)));
   handle('cancel', id => { jobs.get(id)?.abort(); });
   handle('tools', () => extractWorker({ action: 'versions' }));
   handle('inspect', input => job(input.requestId, async signal => {
@@ -205,7 +281,15 @@ function installHandlers() {
   handle('save', input => job(input.requestId, async (signal, progress) => savePin(await preparePin(input), signal, progress)));
   handle('enqueue-save', async input => {
     const payload = await preparePin(input);
-    return downloads.add('save', payload, payload.pin.title);
+    try {
+      const taskId = await downloads.add('save', payload, payload.pin.title);
+      return { taskId, collectionId: payload.pin.collectionId };
+    } catch (error) {
+      if (input.newCollection) await changeLibrary(draft => {
+        if (!draft.pins.some(pin => pin.collectionId === payload.pin.collectionId)) draft.collections = draft.collections.filter(item => item.id !== payload.pin.collectionId);
+      });
+      throw error;
+    }
   });
   handle('downloads', () => downloads.snapshot());
   handle('cancel-download', id => downloads.cancel(id));
@@ -219,13 +303,16 @@ function installHandlers() {
   handle('update-collection', input => job(input.requestId, (signal, progress) => updateCollection(input, signal, progress)));
   handle('enqueue-collection', input => {
     const payload = { id: input.id, name: collectionName(input.name), settings: collectionSettings(input.settings) };
-    if (!library.snapshot().collections.some(item => item.id === payload.id)) throw new Error('Collection not found.');
+    library.requireUnlocked(payload.id);
     return downloads.add('collection', payload, `Download originals · ${payload.name}`);
   });
   handle('update-pin', input => job(input.requestId, (signal, progress) => updatePin(input, signal, progress)));
   handle('enqueue-pin', input => {
     const payload = { id: input.id, ...pinDetails(input), collectionId: input.collectionId, coverId: input.coverId };
-    if (!library.snapshot().pins.some(item => item.id === input.id)) throw new Error('Pin not found.');
+    const pin = library.snapshot().pins.find(item => item.id === input.id);
+    if (!pin) throw new Error('Pin not found.');
+    library.requireUnlocked(pin.collectionId); library.requireUnlocked(payload.collectionId);
+    payload.previews = pinPreviews(input.previews === undefined ? pin.previews : input.previews, pin.items, input.coverId);
     return downloads.add('pin', payload, `Move · ${payload.title}`);
   });
   handle('delete-pin', id => changeLibrary(draft => {
@@ -236,9 +323,10 @@ function installHandlers() {
     draft.pins.splice(index, 1);
     return removed.id;
   }));
-  handle('delete-collection', id => changeLibrary(draft => {
+  handle('delete-collection', id => protectCollection({ id }, draft => {
     const index = draft.collections.findIndex(item => item.id === id);
     if (index === -1) throw new Error('Collection not found.');
+    library.protection.lock(draft, id);
     const removed = { id: randomUUID(), collection: draft.collections[index], index,
       pins: draft.pins.map((pin, index) => ({ pin, index })).filter(item => item.pin.collectionId === id), createdAt: new Date().toISOString() };
     draft.trash = [...(draft.trash || []), removed].slice(-20);
@@ -256,6 +344,7 @@ function installHandlers() {
     const collectionId = removed.collection?.id || removed.pins[0]?.pin.collectionId;
     const target = draft.collections.find(item => item.id === collectionId);
     if (!target) throw new Error('Restore the collection first, then restore this pin.');
+    if (!removed.collection) library.requireUnlocked(target.id, draft);
     for (const { pin, index } of removed.pins) {
       if (draft.pins.some(item => item.id === pin.id || item.collectionId === pin.collectionId && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in the collection.');
       draft.pins.splice(Math.min(index, draft.pins.length), 0, pin);
@@ -277,8 +366,8 @@ function installHandlers() {
       const index = before ? items.indexOf(before) : input.kind === 'pin' ? items.findLastIndex(entry => entry.collectionId === item.collectionId) + 1 : items.length;
       items.splice(index, 0, item);
     }
-    return draft;
-  }));
+    return null;
+  }).then(() => library.publicSnapshot()));
   handle('save-collection', async input => {
     const current = library.snapshot().collections.find(item => item.id === input?.id);
     if (!current) throw new Error('Collection not found.');
@@ -296,22 +385,27 @@ function installHandlers() {
       const collection = draft.collections.find(item => item.id === current.id);
       if (!collection) throw new Error('Collection not found.');
       if (draft.collections.some(item => item.id !== collection.id && item.destination === destination)) throw new Error('Another collection already uses this destination.');
-      if (collection.destination !== destination || input.chooseDestination) delete collection.destinationRevision;
+      if (collection.destination !== destination) delete collection.destinationRevision;
       collection.destination = destination;
       collection.fileId ||= collection.id;
       return collection;
     }, current.id);
   });
-  handle('close-collection', id => changeLibrary(draft => {
+  handle('clear-collection-history', () => changeLibrary(draft => {
+    draft.hiddenRecentCollections = draft.collections.filter(item => item.closed).map(item => item.id);
+  }));
+  handle('close-collection', id => protectCollection({ id }, (draft) => {
     const collection = draft.collections.find(item => item.id === id);
     if (!collection) throw new Error('Collection not found.');
     collection.closed = true;
+    if (draft.hiddenRecentCollections) draft.hiddenRecentCollections = draft.hiddenRecentCollections.filter(item => item !== id);
+    library.protection.lock(draft, id);
   }));
   handle('reopen-collection', async id => {
     const current = library.snapshot().collections.find(item => item.id === id);
     if (!current) throw new Error('Collection not found.');
     let warning;
-    if (current.destination) {
+    if (current.destination && !current.vault) {
       try { return await openCollectionFile(current.destination); }
       catch { warning = 'Opened the local copy. The saved collection file could not be read.'; }
     }
@@ -332,11 +426,18 @@ function installHandlers() {
     const snapshot = library.snapshot(), collection = snapshot.collections.find(item => item.id === input.id);
     if (!collection) throw new Error('Collection not found.');
     const filename = collection.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'collection';
+    const extension = collection.vault ? 'papan' : 'zip';
     const chosen = await dialog.showSaveDialog(window, { title: 'Export a portable collection', buttonLabel: 'Export portable copy',
-      defaultPath: path.join(app.getPath('documents'), `${filename}.papan.zip`),
-      filters: [{ name: 'Portable Papan collection', extensions: ['zip'] }], properties: ['createDirectory', 'showOverwriteConfirmation'] });
+      defaultPath: path.join(app.getPath('documents'), `${filename}.${collection.vault ? 'papan' : 'papan.zip'}`),
+      filters: [{ name: 'Portable Papan collection', extensions: [extension] }], properties: ['createDirectory', 'showOverwriteConfirmation'] });
     if (chosen.canceled || !chosen.filePath) return null;
-    const file = chosen.filePath.toLowerCase().endsWith('.zip') ? chosen.filePath : `${chosen.filePath}.papan.zip`;
+    const file = chosen.filePath.toLowerCase().endsWith(`.${extension}`) ? chosen.filePath : `${chosen.filePath}.${extension}`;
+    if (collection.vault) {
+      const temporary = `${file}.${randomUUID()}.tmp`;
+      try { await copyFile(library.protection.vaultPath(collection), temporary); await rename(temporary, file); }
+      finally { await rm(temporary, { force: true }); }
+      return { file, encrypted: true };
+    }
     return job(input.requestId, signal => exportBundle(library.root, snapshot, collection, file, signal));
   });
   handle('open-source', async id => {
@@ -362,8 +463,12 @@ async function collectUnusedMedia() {
 
 async function createWindow() {
   window = new BrowserWindow({ width: 1200, height: 820, minWidth: 560, minHeight: 400, backgroundColor: '#000000',
-    title: 'Papan', icon: path.join(here, '..', 'assets', 'icon.png'), autoHideMenuBar: true, show: false,
+    title: 'Papan', icon: path.join(here, '..', 'assets', 'icon.png'), show: false,
     webPreferences: { preload: path.join(here, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true },
+  });
+  if (process.platform !== 'darwin') window.setMenu(null);
+  window.webContents.on('before-input-event', (_event, input) => {
+    window.webContents.setIgnoreMenuShortcuts((input.control || input.meta) && !input.alt && !input.shift && ['t', 'w'].includes(input.key.toLowerCase()));
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -389,28 +494,28 @@ else {
         else if (url.hostname === 'media' && /^\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/(preview|original)$/i.test(url.pathname)) {
           const [, pinId, itemId, kind] = url.pathname.split('/');
           const item = library.snapshot().pins.find(pin => pin.id === pinId)?.items.find(item => item.id === itemId);
-          if (item) file = mediaLocation(library.root, item, kind === 'original');
+          if (item) file = library.protection.media(item, kind === 'original') || mediaLocation(library.root, item, kind === 'original');
         }
         else return new Response('Not found', { status: 404 });
         if (!file) return new Response('Not found', { status: 404 });
-        if (!(await stat(file)).isFile()) return new Response('Not found', { status: 404 });
-        const response = await net.fetch(pathToFileURL(file).href, { headers: request.headers });
-        const headers = new Headers(response.headers);
-        headers.set('Content-Type', types[path.extname(file).toLowerCase()] || 'application/octet-stream');
-        headers.set('X-Content-Type-Options', 'nosniff');
-        return new Response(response.body, { status: response.status, headers });
+        return await fileResponse(file, request, types[typeof file === 'string' ? path.extname(file).toLowerCase() : file.ext] || 'application/octet-stream');
       } catch { return new Response('Not found', { status: 404 }); }
     });
+    await session.defaultSession.clearCache();
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     downloads = await openDownloadQueue(library.root, async (kind, payload, signal, progress) => {
       const result = await (kind === 'save' ? savePin(payload, signal, progress) : kind === 'collection' ? updateCollection(payload, signal, progress) : updatePin(payload, signal, progress));
       return { collectionId: result.collectionId, pinId: result.pin?.id };
-    }, tasks => { if (window && !window.isDestroyed()) window.webContents.send('papan:downloads', tasks); });
+    }, tasks => { if (window && !window.isDestroyed()) window.webContents.send('papan:downloads', tasks); }, {
+      encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()),
+      decode: (task, required) => library.protection.decodeTask(task, required),
+    });
     installHandlers();
     await createWindow();
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
   }).catch(error => { dialog.showErrorBox('Papan could not start', error.message); app.quit(); });
   app.on('before-quit', () => downloads?.stop());
+  app.on('will-quit', () => library?.protection.clear());
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 }

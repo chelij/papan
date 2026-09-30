@@ -65,9 +65,11 @@ try {
   }
   assert.deepEqual(await readdir(path.join(data, 'library/media'), { recursive: true }), filesBefore);
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Storage', exact: true }).click();
   await expect(page.locator('#collection-destination')).toHaveText(file);
+  await page.getByRole('tab', { name: 'General', exact: true }).click();
   await page.getByLabel('name', { exact: true }).fill('saved references');
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('End');
+  await page.getByRole('slider', { name: 'preview size', exact: true }).press('Home');
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   assert.equal((await manifest()).collection.name, 'saved references');

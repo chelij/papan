@@ -7,6 +7,7 @@ const invoke = channel => async input => {
 };
 
 contextBridge.exposeInMainWorld('papan', {
+  unlockCollection: invoke('unlock-collection'), lockCollection: invoke('lock-collection'), protectCollection: invoke('protect-collection'),
   library: invoke('library'), inspect: invoke('inspect'), save: invoke('save'), cancel: invoke('cancel'),
   enqueueSave: invoke('enqueue-save'), downloads: invoke('downloads'), cancelDownload: invoke('cancel-download'),
   retryDownload: invoke('retry-download'), dismissDownload: invoke('dismiss-download'),
@@ -15,6 +16,7 @@ contextBridge.exposeInMainWorld('papan', {
   createCollection: invoke('create-collection'), updateCollection: invoke('update-collection'),
   saveCollection: invoke('save-collection'), openCollection: invoke('open-collection'),
   closeCollection: invoke('close-collection'), reopenCollection: invoke('reopen-collection'),
+  clearCollectionHistory: invoke('clear-collection-history'),
   deleteCollection: invoke('delete-collection'), deletePin: invoke('delete-pin'), reorder: invoke('reorder'),
   openSource: invoke('open-source'), openFolder: invoke('open-folder'), tools: invoke('tools'),
   onProgress: callback => {

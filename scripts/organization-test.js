@@ -45,14 +45,13 @@ try {
   await expect(page.locator('.pin')).toHaveCount(1);
   const first = (await library()).pins[0];
   const sourceId = first.collectionId;
-  await page.getByLabel('New collection', { exact: true }).click();
+  await page.getByLabel('Details for Collected colors', { exact: true }).click();
+  await page.getByRole('button', { name: 'edit pin', exact: true }).click();
+  await page.locator('#edit-collection').selectOption('');
   await page.getByLabel('name', { exact: true }).fill('design notes');
   await page.getByRole('button', { name: 'create collection', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   const targetId = (await library()).collections.find(item => item.name === 'design notes').id;
-  await page.getByRole('tab', { name: 'collection 01', exact: true }).click();
-  await page.getByLabel('Details for Collected colors', { exact: true }).click();
-  await page.getByRole('button', { name: 'edit pin', exact: true }).click();
   await page.getByLabel('pin title', { exact: true }).fill('Color studies');
   await page.locator('#edit-tags').fill('color, inspiration');
   await page.locator('#edit-notes').fill('Warm shapes for the next poster');
@@ -106,7 +105,7 @@ try {
   // A blocked media download does not hold the library write lock; cancellation and retry are visible.
   const taskId = await page.evaluate(async ({ url, collectionId }) => {
     const inspection = await window.papan.inspect({ url, requestId: crypto.randomUUID() });
-    return window.papan.enqueueSave({ inspectionId: inspection.id, selectedIds: inspection.items.map(item => item.id), collectionId });
+    return (await window.papan.enqueueSave({ inspectionId: inspection.id, selectedIds: inspection.items.map(item => item.id), collectionId })).taskId;
   }, { url: slowURL, collectionId: sourceId });
   await expect.poll(() => Boolean(waiting)).toBe(true);
   const start = Date.now();
@@ -122,20 +121,20 @@ try {
   hold = false; waiting?.destroy();
   await page.locator(`[data-task="${taskId}"][data-action="retryDownload"]`).click();
   await waitDownloads();
-  assert.equal((await page.evaluate(() => window.papan.downloads())).find(task => task.id === taskId).state, 'completed');
-  await page.getByLabel('Close downloads', { exact: true }).click();
+  assert.equal((await page.evaluate(() => window.papan.downloads())).some(task => task.id === taskId), false);
+  await expect(page.getByLabel('Downloads', { exact: true })).toBeHidden();
 
   // A move to an offline collection downloads originals before it commits.
   await page.getByRole('tab', { name: 'design notes', exact: true }).click();
-  await page.getByLabel('New collection', { exact: true }).click();
+  await page.getByLabel('Details for Color studies', { exact: true }).click();
+  await page.getByRole('button', { name: 'edit pin', exact: true }).click();
+  await page.locator('#edit-collection').selectOption('');
   await page.getByLabel('name', { exact: true }).fill('offline poster');
+  await page.getByRole('tab', { name: 'Storage', exact: true }).click();
   await page.getByLabel('media storage', { exact: true }).selectOption('offline');
   await page.getByRole('button', { name: 'create collection', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   const offlineId = (await library()).collections.find(item => item.name === 'offline poster').id;
-  await page.getByRole('tab', { name: 'design notes', exact: true }).click();
-  await page.getByLabel('Details for Color studies', { exact: true }).click();
-  await page.getByRole('button', { name: 'edit pin', exact: true }).click();
   await page.locator('#edit-collection').selectOption(offlineId);
   await page.getByRole('button', { name: 'save pin', exact: true }).click();
   await expect(page.locator('#pin-editor')).toBeHidden();
@@ -145,6 +144,7 @@ try {
   const bundle = path.join(directory, 'poster.papan.zip');
   await app.evaluate((_electron, file) => { globalThis.savePaths.push(file); }, bundle);
   await page.getByLabel('Collection settings', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Storage', exact: true }).click();
   await page.getByRole('button', { name: 'export portable copy…', exact: true }).click();
   await expect(page.locator('#toast')).toContainText('portable copy exported', { timeout: 30000 });
   assert.ok((await readFile(bundle)).length > 100);

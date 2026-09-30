@@ -40,15 +40,15 @@ try {
   await mkdir('artifacts', { recursive: true });
   await launch();
   await expect(page.locator('.pin')).toHaveCount(pins.length);
-  await expect(page.locator('.toolbar-actions > button')).toHaveCount(6);
+  await expect(page.locator('.toolbar-actions > button:visible')).toHaveCount(5);
   assert.ok(await page.evaluate(() => {
     const logo = document.querySelector('.wordmark').getBoundingClientRect(), mode = document.querySelector('#storage-mode').getBoundingClientRect();
     return mode.top >= logo.bottom && Math.abs(mode.left - logo.left) < 2;
   }));
   await page.getByRole('tab', { name: 'saved offline', exact: true }).click();
-  await expect(page.locator('#storage-mode')).toHaveText('originals saved');
+  await expect(page.locator('#storage-mode')).toHaveText('offline');
   await page.getByRole('tab', { name: 'inspiration', exact: true }).click();
-  await expect(page.locator('#storage-mode')).toHaveText('previews cached');
+  await expect(page.locator('#storage-mode')).toHaveText('online');
 
   // Exercise native drag events with pointer movement, rather than dispatching a synthetic drop.
   const beforeDrag = await pinGeometry();
@@ -114,7 +114,11 @@ try {
   await expect.poll(pinGeometry).toEqual(beforeCancel);
   assert.deepEqual(await savedPinOrder(), expected);
   await page.locator('.tile-main').first().click();
+  await expect(page.locator('#viewer')).toBeVisible();
+  assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), []);
+  await page.getByRole('button', { name: 'open original ↗', exact: true }).click();
   assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), [pins[1].sourceUrl]);
+  await page.getByRole('button', { name: 'Close viewer', exact: true }).click();
 
   const beforeInvalid = await page.evaluate(() => window.papan.library());
   for (const input of [null, { kind: 'wrong', id: pins[0].id, beforeId: null }, { kind: 'pin', id: pins[0].id, beforeId: 'missing' }, { kind: 'pin', id: 'missing', beforeId: null }, { kind: 'pin', id: pins[0].id, beforeId: otherPin.id }]) {
@@ -140,7 +144,7 @@ try {
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
   await expect(page.getByRole('button', { name: 'save settings', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'create collection', exact: true })).toHaveCount(0);
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('End');
+  await page.getByRole('slider', { name: 'preview size', exact: true }).press('Home');
   await expect.poll(async () => (await page.locator('.pin').first().boundingBox()).width).toBeLessThan(originalBox.width / 2);
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 3, 'preview does not save early');
   await page.getByLabel('media fit', { exact: true }).selectOption('cover');
@@ -166,17 +170,17 @@ try {
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
   await page.getByLabel('name', { exact: true }).fill('inspiration');
   await page.getByLabel('media fit', { exact: true }).selectOption('contain');
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('ArrowLeft');
-  await page.getByRole('slider', { name: 'layout density', exact: true }).press('Escape');
+  await page.getByRole('slider', { name: 'preview size', exact: true }).press('ArrowRight');
+  await page.getByRole('slider', { name: 'preview size', exact: true }).press('Escape');
   await expect(page.locator('#settings-dialog')).toBeHidden();
 
   const collectionCount = (await page.evaluate(() => window.papan.library())).collections.length;
-  await page.getByRole('button', { name: 'New collection', exact: true }).click();
-  await page.getByLabel('name', { exact: true }).fill('cancel this new collection');
-  await expect(page.getByRole('button', { name: 'create collection', exact: true })).toBeVisible();
-  await page.getByLabel('name', { exact: true }).press('Escape');
+  await page.getByRole('button', { name: 'New tab', exact: true }).click();
+  await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText('new tab');
   await expect(page.locator('#settings-dialog')).toBeHidden();
+  await expect(page.locator('#start-collecting')).toBeVisible(); await expect(page.locator('#open-empty-collection')).toBeVisible();
   assert.equal((await page.evaluate(() => window.papan.library())).collections.length, collectionCount);
+  await page.keyboard.press('Control+w'); await expect(page.locator('.collection-tab')).toHaveCount(collectionCount);
   await app.close(); app = null;
   await launch();
   await expect.poll(pinOrder).toEqual(expected);
@@ -192,7 +196,7 @@ try {
   }
   assert.deepEqual(errors, []);
   await writeFile('artifacts/interaction-check.json', JSON.stringify({ date: new Date().toISOString(), status: 'passed', packaged: Boolean(process.env.PAPAN_EXECUTABLE) }, null, 2));
-  console.log('Interactions passed: button toolbar, status position, native pin/tab dragging, keyboard reordering, validation, search, live layout preview, settings saved on close/Escape/Enter, cancelled creation, and persisted order/settings after restart.');
+  console.log('Interactions passed: button toolbar, status position, native pin/tab dragging, keyboard reordering, validation, search, live layout preview, settings saved on close/Escape/Enter, blank tab creation/closing, and persisted order/settings after restart.');
 } catch (error) {
   if (page && !page.isClosed()) await page.screenshot({ path: 'artifacts/interaction-failure.png' });
   throw error;

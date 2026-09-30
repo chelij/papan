@@ -1,7 +1,8 @@
 import { copyFile, lstat, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { collectionName, collectionSettings, pinDetails } from './library.js';
+import { isVault, vaultHeader } from './vault.js';
+import { collectionName, collectionSettings, pinDetails, pinPreviews } from './library.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const mediaPath = /^[0-9a-f-]{36}\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/;
@@ -16,6 +17,7 @@ export function mediaLocation(root, item, original = false) {
 }
 
 export function collectionContents(snapshot, collection, root) {
+  if (collection.vault) return { vault: collection.vault };
   const id = collection.fileId || collection.id;
   return { collection: { id, name: collection.name, settings: collection.settings, createdAt: collection.createdAt },
     pins: snapshot.pins.filter(pin => pin.collectionId === collection.id).map(pin => ({ ...pin, collectionId: id,
@@ -56,9 +58,10 @@ export function validateContents(data) {
       for (const field of ['width', 'height', 'previewWidth', 'previewHeight']) {
         if (item[field] != null && (!Number.isFinite(item[field]) || item[field] < 0)) throw new Error('Invalid media dimensions.');
       }
-      delete item.previewFile; delete item.localFile;
+      delete item.previewFile; delete item.localFile; delete item.vault; delete item.encrypted;
     }
     if (!itemIds.has(pin.coverId)) throw new Error('Invalid collection cover.');
+    if (pin.previews !== undefined) pin.previews = pinPreviews(pin.previews, pin.items, pin.coverId);
   }
   return data;
 }
@@ -77,27 +80,31 @@ export async function saveCollectionFile(root, snapshot, collection) {
   try { await realpath(path.dirname(file)); }
   catch { throw new Error('The collection destination is unavailable. Reconnect it or choose another destination.'); }
   let previous;
-  try { previous = await readManifest(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (previous && (previous.collection.id !== (collection.fileId || collection.id) ||
+  try { previous = await isVault(file) ? { encrypted: true, ...(await vaultHeader(file)) } : await readManifest(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (previous && (previous.encrypted ? previous.revision !== collection.destinationRevision : previous.collection.id !== (collection.fileId || collection.id) ||
       (collection.destinationRevision && previous.revision !== collection.destinationRevision))) {
     throw new Error('This file contains another or newer collection. Open it before editing, or choose another destination.');
   }
   if (!previous && collection.destinationRevision) throw new Error('The saved collection file is missing. Choose a destination again to save a new file.');
-  const data = validateContents({ format: 'papan-collection', version: 1, revision: randomUUID(), ...collectionContents(snapshot, collection, root) });
+  const encryptedFile = collection.vault ? path.join(root, 'vaults', collection.vault.file) : null;
+  const data = encryptedFile ? await vaultHeader(encryptedFile) : validateContents({ format: 'papan-collection', version: 1, revision: randomUUID(), ...collectionContents(snapshot, collection, root) });
   const backupFile = `${file.slice(0, -path.extname(file).length)}.previous.papan`;
   if (previous) {
     try {
-      const existing = await readManifest(backupFile);
-      if (existing.collection.id !== data.collection.id) throw new Error('Another collection uses the backup file.');
+      const existing = await isVault(backupFile) ? null : await readManifest(backupFile);
+      if (existing && existing.collection.id !== (collection.fileId || collection.id)) throw new Error('Another collection uses the backup file.');
     } catch (error) {
       if (error.code !== 'ENOENT') throw new Error('The backup location contains another file. Choose another destination to preserve it.');
     }
   }
   const temporary = `${file}.${randomUUID()}.tmp`, backup = `${temporary}.previous`;
   try {
-    await writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+    if (encryptedFile) await copyFile(encryptedFile, temporary);
+    else await writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
     if (previous) {
-      await copyFile(file, backup);
+      // An encrypted save never creates or retains a plaintext external backup.
+      const resetBackup = encryptedFile && (!previous.encrypted || !previous.envelope.equals(data.envelope));
+      await copyFile(resetBackup ? encryptedFile : file, backup);
       await rename(backup, backupFile);
     }
     await rename(temporary, file);

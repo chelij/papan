@@ -13,6 +13,7 @@ flowchart LR
   Process --> Stage[Staged media]
   Stage -->|commit after success| Library
   Library --> Media[Local media]
+  Library --> Vaults[Encrypted collection vaults]
   Main --> Archive[Validated portable ZIP import / export]
 ```
 
@@ -21,6 +22,7 @@ flowchart LR
 - `src/renderer/` owns the canvas, adaptive layout, live settings previews, accessible dialogs, search, and visible media playback. It has no Node access.
 - `src/preload.cjs` exposes named operations. `src/main.js` accepts calls only from the app's main frame and owns files, dialogs, navigation, subprocesses, and commits.
 - `src/library.js` serializes atomic metadata writes and validates collection settings and pin details. `src/collection-files.js` handles revision-checked saved lists and media references.
+- `src/protection.js` manages collection locks and encryption transactions. `src/vault.js` stores authenticated metadata and media chunks; `src/file-response.js` serves byte ranges for ordinary and encrypted playback. [Format and recovery design](encryption.md).
 - `src/download-queue.js` persists tasks and runs one media job at a time. Network work happens outside the library write queue, so unrelated edits remain responsive.
 - `src/media.js` routes URLs, validates and bounds downloads, extracts articles, and prepares previews. `worker/extract.py` runs gallery-dl, yt-dlp, and Instaloader as a separate executable.
 - `src/portable.js` and `worker/archive.py` export/import a collection with its media. Python's standard ZIP library avoids another native archive dependency.
@@ -38,6 +40,8 @@ The queue records lifecycle transitions and publishes stage/item progress. It ru
 The primary metadata file is written to a temporary file and renamed. The previous snapshot remains available. Saved `.papan` lists have revision IDs to detect external edits and their own previous copies. Moves affecting two list destinations restore earlier writes when a later write fails. Multi-file updates are not a filesystem transaction across a power loss; previous copies provide a recovery path.
 
 Deletion keeps the last 20 removal records, including media references. Garbage collection preserves active pins, saved-list references, removal history, and the prior metadata snapshot. This favors recoverability over aggressively reclaiming storage.
+
+New tabs live only in renderer memory until the first confirmed link save creates a collection. Clearing recent history changes visibility metadata; the All collections view still exposes saved collections. Protected collections start locked, and their pins and media stay out of the renderer until password authentication succeeds.
 
 List saves deliberately reference existing media. Portable export is a different operation: metadata and media are packaged into a self-contained snapshot. Imports validate every entry, extract into staging, discard saved destination fields, assign new IDs, and commit an independent collection. The source archive and existing library are left intact.
 
