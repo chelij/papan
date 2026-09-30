@@ -21,7 +21,7 @@ async function launch() {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 async function add(resource, { first = false, choose } = {}) {
-  await page.getByRole('button', { name: first ? 'Paste link to start collecting' : 'Add link', exact: true }).click();
+  await page.getByRole('button', { name: first ? 'paste link to start collecting' : 'Add link', exact: true }).click();
   await page.getByLabel('a link from anywhere').fill(fixture.url + resource);
   await page.getByRole('button', { name: 'find media' }).click();
   await expect(page.locator('#inspection')).toBeVisible({ timeout: 15000 });
