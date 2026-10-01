@@ -196,14 +196,14 @@ try {
   assert.deepEqual(JSON.parse(await readFile(path.join(root, 'downloads.json'))), []);
   await downloads.add('save', { pin: { ...pin, sourceUrl: 'https://example.com/failure-test' } }, 'failed download');
   await expect.poll(() => typeof finishDownload).toBe('function'); finishDownload(false);
-  await expect(page.locator('#downloads-toggle')).toBeHidden();
+  await expect(page.locator('#downloads-toggle')).toBeVisible();
   await page.locator('#open-collection').click(); await page.locator('#review-downloads').click();
   await expect(page.locator('.download')).toContainText('Fixture failed');
   await page.getByRole('button', { name: 'retry', exact: true }).click();
   await expect(page.locator('#downloads-toggle')).toBeVisible();
   await expect.poll(() => typeof finishDownload).toBe('function'); finishDownload(true);
   await expect(page.locator('#downloads-toggle')).toBeHidden(); await expect(page.locator('.download')).toHaveCount(0);
-  checks.push('idle downloads button hidden; active queue visible; success removes history; failed work remains accessible and retryable');
+  checks.push('idle downloads button hidden; active and failed work keep the footer button visible; success removes history; failed work remains accessible and retryable');
   assert.deepEqual(errors, []);
   await mkdir('artifacts', { recursive: true });
   await writeFile('artifacts/protection-check.json', JSON.stringify({ status: 'passed', display: 'isolated headless Chromium', checks, limits: 'Production renderer/library/crypto/queue; IPC stubbed and custom scheme mapped to loopback HTTP.' }, null, 2) + '\n');

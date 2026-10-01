@@ -2,6 +2,7 @@ import { _electron as electron, expect } from 'playwright/test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { startFixture } from '../test/fixture.js';
@@ -15,6 +16,10 @@ const errors = [];
 async function launch() {
   app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [root], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: undefined }, timeout: 30000 });
   page = await app.firstWindow();
+  if (process.env.DISPLAY === ':97') {
+    const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
+    assert.equal(spawnSync('xprop', ['-display', ':97', '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+  }
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => Boolean(window.papan));
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible())).toBe(true);
@@ -53,13 +58,13 @@ try {
   assert.equal(saved.collections[0].settings.density, 3);
   await page.waitForFunction(() => {
     const img = document.querySelector('.tile-media img'), card = document.querySelector('.pin');
-    return img?.naturalWidth === 1280 && Math.abs(card.clientWidth / card.clientHeight - 1) < 0.02 && getComputedStyle(img).objectFit === 'cover';
+    return img?.naturalWidth === 1280 && Math.abs(card.clientWidth / card.clientHeight - (2 + .5) / 2) < 0.02 && getComputedStyle(img).objectFit === 'cover';
   });
   const firstSource = await page.locator('.tile-media img').getAttribute('src');
   await page.waitForFunction(src => document.querySelector('.tile-media img')?.src !== src, firstSource, { timeout: 8000 });
   await page.waitForFunction(() => {
     const img = document.querySelector('.tile-media img'), card = document.querySelector('.pin');
-    return img?.naturalWidth === 600 && getComputedStyle(img).objectFit === 'cover' && Math.abs(card.clientWidth / card.clientHeight - 1) < 0.02;
+    return img?.naturalWidth === 600 && getComputedStyle(img).objectFit === 'cover' && Math.abs(card.clientWidth / card.clientHeight - (2 + .5) / 2) < 0.02;
   });
   await app.evaluate(({ shell }) => { globalThis.papanOpened = []; shell.openExternal = async url => { globalThis.papanOpened.push(url); }; });
   await page.locator('.tile-main').click();
@@ -75,9 +80,9 @@ try {
     const v = document.querySelectorAll('.pin')[1]?.querySelector('video');
     return v && v.muted && !v.paused && !v.loop && v.duration > 11.9 && v.videoWidth === 720 && v.currentTime > 8.2;
   }, null, { timeout: 20000 });
-  await expect.poll(() => mixed.evaluate(card => card.clientWidth / card.clientHeight)).toBeCloseTo(Math.sqrt((4 / 3) * .5), 2);
+  await expect.poll(() => mixed.evaluate(card => card.clientWidth / card.clientHeight)).toBeCloseTo((2 + .5 + 4 / 3 + .5) / 4, 2);
   await expect(mixed.locator('img')).toBeVisible({ timeout: 10000 });
-  await expect.poll(() => mixed.evaluate(card => card.clientWidth / card.clientHeight)).toBeCloseTo(Math.sqrt((4 / 3) * .5), 2);
+  await expect.poll(() => mixed.evaluate(card => card.clientWidth / card.clientHeight)).toBeCloseTo((2 + .5 + 4 / 3 + .5) / 4, 2);
 
   await page.getByLabel('New tab', { exact: true }).click();
   await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText('new tab');
@@ -101,7 +106,7 @@ try {
   assert.ok(boxes.slice(1).every((box, index) => box.y > boxes[index].y || box.y === boxes[index].y && box.x > boxes[index].x), 'pins keep reading order as rows wrap');
   await page.waitForFunction(() => {
     const card = document.querySelector('.pin'), v = card?.querySelector('video');
-    return v && v.videoWidth === 720 && v.videoHeight === 540 && v.duration > 11.9 && v.loop && Math.abs(card.clientWidth / card.clientHeight - 4 / 3) < 0.02;
+    return v && v.videoWidth === 720 && v.videoHeight === 540 && v.duration > 11.9 && v.loop && Math.abs(card.clientWidth / card.clientHeight - (4 / 3 + .5 + 2 + 1) / 4) < 0.02;
   });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1600, 900));
   await page.waitForFunction(() => [...document.querySelectorAll('.pin')].every(card => card.offsetLeft + card.offsetWidth <= document.querySelector('#grid').clientWidth));

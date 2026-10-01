@@ -44,6 +44,7 @@ class BrowserSessionTests(unittest.TestCase):
             with sqlite3.connect(file) as db:
                 db.execute("CREATE TABLE moz_cookies (name TEXT, value TEXT, host TEXT, path TEXT, isSecure INTEGER, expiry INTEGER, originAttributes TEXT)")
                 db.executemany("INSERT INTO moz_cookies VALUES (?,?,?,?,?,?,?)", [("session", "fixture-x", ".x.com", "/", 1, 4102444800, ""), ("private", "fixture-other", ".other.example", "/", 1, 4102444800, "")])
+            db.close()
             self.assertEqual([cookie.name for cookie in load_cookies(["firefox", directory, None, None, ".x.com"])], ["session"])
             self.assertEqual(sorted(file.name for file in Path(directory).iterdir()), ["cookies.sqlite"])
 
