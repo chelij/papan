@@ -2,6 +2,8 @@ import { _electron as electron, expect } from 'playwright/test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import developmentFFmpeg from 'ffmpeg-static';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,10 +23,11 @@ info.items[0].id = itemId;
 const saved = await materialize({ ...info, id: pinId, collectionId: collection.id, coverId: itemId,
   title: 'portrait color check', tags: ['keep'], notes: 'preserve this note', previews: [{ itemId, start: .1, end: .8 }] }, root, true);
 const original = await readFile(path.join(root, 'media', saved.items[0].localFile));
-const broken = spawnSync(path.resolve('vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+const bundledFFmpeg = path.resolve('vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+const broken = spawnSync(existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg,
   ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', path.join(root, 'media', saved.items[0].localFile),
     '-an', '-vf', 'scale=406:720', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(root, 'media', saved.items[0].previewFile)]);
-assert.equal(broken.status, 0, broken.stderr.toString());
+assert.equal(broken.status, 0, broken.error?.message || broken.stderr?.toString());
 delete saved.items[0].previewVersion;
 await library.mutate(draft => { draft.collections.push(collection); draft.pins.push(saved); });
 await library.mutate(draft => library.protection.setPassword(draft, collection.id, password));

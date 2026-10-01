@@ -8,6 +8,8 @@ import { parsePage, routeSource, webURL, inspectLink, materialize } from '../src
 import { startFixture } from './fixture.js';
 import sharp from 'sharp';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import developmentFFmpeg from 'ffmpeg-static';
 
 test('only web URLs are accepted and target sites require individual posts', () => {
   for (const value of ['file:///etc/passwd', 'javascript:alert(1)', 'https://name:password@example.com', 'not a link']) assert.throws(() => webURL(value));
@@ -109,9 +111,10 @@ test('portrait video previews preserve decoded colors after downscaling', async 
   try {
     const saved = await materialize(await inspectLink(`${fixture.url}/portrait.mp4`), root, true);
     const preview = path.join(root, 'media', saved.items[0].previewFile);
-    const decoded = spawnSync(path.resolve('vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+    const bundledFFmpeg = path.resolve('vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+    const decoded = spawnSync(existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg,
       ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', preview, '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']);
-    assert.equal(decoded.status, 0, decoded.stderr.toString());
+    assert.equal(decoded.status, 0, decoded.error?.message || decoded.stderr?.toString());
     assert.equal(decoded.stdout.length, 406 * 720 * 3);
     let red = 0;
     for (let offset = 0; offset < decoded.stdout.length; offset += 3) {
