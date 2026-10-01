@@ -1,6 +1,6 @@
 import { _electron as electron, expect } from 'playwright/test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import developmentFFmpeg from 'ffmpeg-static';
@@ -91,6 +91,7 @@ try {
   assert.equal((await page.evaluate(() => window.papan.library())).pins[0].items[0].previewVersion, 1);
   assert.equal((await page.evaluate(() => window.papan.downloads())).length, 0, 'repaired previews do not download again after restart');
   assert.deepEqual(errors, []);
+  await mkdir('artifacts', { recursive: true });
   await writeFile('artifacts/preview-repair-check.json', JSON.stringify({ status: 'passed', display: process.env.DISPLAY, pixels,
     checks: ['Automatic repair after unlock renders correct pixels through the encrypted media protocol', 'Pin details, clip ranges, complete original, and encryption survive repair', 'Repeated repair and restart avoid another download'] }, null, 2) + '\n');
   console.log('Protected preview repair, rendered colors, preserved original, and restart idempotency passed.');
