@@ -43,6 +43,7 @@ try {
     if (method === 'library') return library.publicSnapshot();
     if (method === 'downloads') return [];
     if (method === 'tools') return {};
+    if (method === 'cancel') return;
     if (method === 'createCollection') throw new Error('Opening a blank tab must not call createCollection.');
     if (method === 'updateCollection') return library.mutate(draft => Object.assign(draft.collections.find(c => c.id === input.id), { name: collectionName(input.name), settings: collectionSettings(input.settings) }));
     if (method === 'closeCollection') return library.mutate(draft => { draft.collections.find(c => c.id === input).closed = true; library.protection.lock(draft, input); });
@@ -64,7 +65,7 @@ try {
     throw new Error(`Unexpected tabs API: ${method}`);
   });
   await page.addInitScript(() => {
-    window.papan = Object.fromEntries(['library', 'downloads', 'tools', 'createCollection', 'updateCollection', 'closeCollection', 'reopenCollection', 'openCollection', 'inspect', 'enqueueSave', 'reorder', 'unlockCollection', 'lockCollection'].map(method => [method, input => window.tabsAPI(method, input)]));
+    window.papan = Object.fromEntries(['library', 'downloads', 'tools', 'cancel', 'createCollection', 'updateCollection', 'closeCollection', 'reopenCollection', 'openCollection', 'inspect', 'enqueueSave', 'reorder', 'unlockCollection', 'lockCollection'].map(method => [method, input => window.tabsAPI(method, input)]));
     window.papan.onDownloads = () => {}; window.papan.onProgress = () => {};
   });
   await page.goto(pathToFileURL(path.resolve('src/renderer/index.html')).href);
