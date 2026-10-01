@@ -41,6 +41,9 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
         response.writeHead(206, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${buffer.length}`, 'Content-Length': end - start + 1 });
         response.end(buffer.subarray(start, end + 1));
       } else { response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': buffer.length }); response.end(buffer); }
+    } else if (pathname === '/portrait.mp4') {
+      response.writeHead(200, { 'Content-Type': 'video/mp4' });
+      response.end(await readFile(new URL('./media/portrait.mp4', import.meta.url)));
     } else if (pathname === '/missing') { response.writeHead(404); response.end(); }
     else {
       response.writeHead(200, { 'Content-Type': 'text/html' });

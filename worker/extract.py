@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 Cheliyono Jenardi
-"""Papan's public-only gallery-dl / yt-dlp process. One JSON request per run."""
+"""Papan's gallery-dl / yt-dlp process. One JSON request per run."""
 import contextlib
 import hashlib
 import json
@@ -13,6 +13,46 @@ from urllib.parse import urlsplit
 # Requests-based extractors must never read saved HTTP credentials.
 os.environ["NETRC"] = os.devnull
 MAX_FILE = 512 * 1024 * 1024
+BROWSERS = {"chrome", "chromium", "firefox", "brave", "edge", "vivaldi", "opera", "safari"}
+
+
+def session_cookies(request):
+    browser = request.get("browser")
+    if not browser:
+        return ()
+    if not isinstance(browser, str) or browser not in BROWSERS | {"auto"}:
+        raise ValueError("Choose a supported browser for session fallback.")
+    host = urlsplit(request["url"]).hostname.lower().removeprefix("www.")
+    if host in ("x.com", "twitter.com", "mobile.twitter.com"):
+        domain = ".x.com"
+    elif host in ("instagram.com", "m.instagram.com"):
+        domain = ".instagram.com"
+    elif host in ("youtube.com", "m.youtube.com", "youtu.be"):
+        domain = ".youtube.com"
+    else:
+        raise ValueError("Browser sessions are supported for X, Instagram, and YouTube links.")
+    if browser == "auto":
+        required = {".x.com": {"auth_token"}, ".instagram.com": {"sessionid"}, ".youtube.com": {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}}[domain]
+        for candidate in ("firefox", "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "safari"):
+            try:
+                cookies = session_cookies({**request, "browser": candidate})
+                if any(cookie.name in required for cookie in cookies):
+                    return cookies
+            except ValueError:
+                continue
+        raise ValueError("No signed-in browser session was found for this site. Sign in in a desktop browser and unlock its password store, then retry. Firefox container logins are not supported yet.")
+    from gallery_dl.cookies import load_cookies
+    try:
+        cookies = load_cookies([browser, None, None, None, domain])
+        # Hyprland does not identify Chromium's libsecret store to the loader.
+        if not cookies and sys.platform == "linux" and browser not in ("firefox", "safari"):
+            cookies = load_cookies([browser, None, "gnomekeyring", None, domain])
+        cookies = [cookie for cookie in cookies if not cookie.is_expired()]
+    except Exception:
+        raise ValueError("Could not read the browser session. Sign in to the site in that browser and unlock its password store; on Windows, you may need to close the browser.") from None
+    if not cookies:
+        raise ValueError("No session cookies were found for this site. Sign in to the site in the selected browser, then retry.")
+    return cookies
 
 
 def web_url(value):
@@ -29,15 +69,15 @@ def media_key(meta, url, index):
     return hashlib.sha256("|".join(identity).encode()).hexdigest()[:24]
 
 
-def gallery_config(output=None):
+def gallery_config(output=None, cookies=()):
     from gallery_dl import config
-    # Never load the user's gallery-dl configuration, cookies, hooks, or cache.
+    # No user configuration, hooks, or cache; cookies come only from explicit fallback.
     config.clear()
     for name, value in {
         "retries": 1, "timeout": 15, "sleep-request": 0,
         "post-range": "1", "file-range": "1-50", "child-range": "1",
         "postprocessors": [], "postprocess": False, "skip": False,
-        "cookies": None, "cookies-update": False,
+        "cookies": {cookie.name: cookie.value for cookie in cookies} or None, "cookies-update": False,
     }.items():
         config.set(("extractor",), name, value)
     config.set(("cache",), "file", ":memory:")
@@ -54,9 +94,9 @@ def gallery_config(output=None):
         config.set(("extractor",), "filename", "{_papan_id}.{extension}")
 
 
-def gallery_inspect(url):
+def gallery_inspect(url, cookies=()):
     from gallery_dl import job
-    gallery_config()
+    gallery_config(cookies=cookies)
     probe = job.DataJob(url, file=None)
     probe.run()
     if probe.exception:
@@ -120,9 +160,11 @@ def video_options(request):
     return options
 
 
-def video_inspect(request):
+def video_inspect(request, cookies=()):
     import yt_dlp
     with yt_dlp.YoutubeDL(video_options(request)) as downloader:
+        for cookie in cookies:
+            downloader.cookiejar.set_cookie(cookie)
         info = downloader.extract_info(request["url"], download=False)
     if info.get("entries"):
         entries = list(info["entries"])
@@ -141,9 +183,9 @@ def video_inspect(request):
             }]}
 
 
-def gallery_download(request):
+def gallery_download(request, cookies=()):
     from gallery_dl import job
-    gallery_config(request["output"])
+    gallery_config(request["output"], cookies)
     requested = set(request["keys"])
     saved = []
 
@@ -169,7 +211,7 @@ def gallery_download(request):
     return saved
 
 
-def video_download(request):
+def video_download(request, cookies=()):
     import yt_dlp
     options = video_options(request)
     options["outtmpl"] = str(Path(request["output"]) / "video.%(ext)s")
@@ -178,6 +220,8 @@ def video_download(request):
         # FFmpeg network-range downloads crash in the bundled Linux build.
         options["format"] = "bv[height<=360]/b[height<=360]/bv/best"
     with yt_dlp.YoutubeDL(options) as downloader:
+        for cookie in cookies:
+            downloader.cookiejar.set_cookie(cookie)
         info = downloader.extract_info(request["url"], download=True)
     files = [p for p in Path(request["output"]).iterdir() if p.is_file() and p.suffix.lower() in (".mp4", ".webm", ".mkv", ".mov")]
     if len(files) != 1 or not files[0].stat().st_size or files[0].stat().st_size > MAX_FILE:
@@ -187,12 +231,14 @@ def video_download(request):
     return [{"key": request["keys"][0], "file": str(files[0].resolve())}]
 
 
-def instagram_post(url):
+def instagram_post(url, cookies=()):
     import instaloader
     parts = urlsplit(url).path.strip("/").split("/")
     if len(parts) < 2 or parts[0] not in ("p", "reel", "reels", "tv"):
         raise ValueError("Paste an individual Instagram post or reel.")
     loader = instaloader.Instaloader(quiet=True, max_connection_attempts=1, request_timeout=15)
+    for cookie in cookies:
+        loader.context._session.cookies.set_cookie(cookie)
     post = instaloader.Post.from_shortcode(loader.context, parts[1])
     if post.typename == "GraphSidecar":
         nodes = list(post.get_sidecar_nodes())
@@ -205,15 +251,15 @@ def instagram_post(url):
     return loader, post, items
 
 
-def instagram_inspect(url):
-    _loader, post, items = instagram_post(url)
+def instagram_inspect(url, cookies=()):
+    _loader, post, items = instagram_post(url, cookies)
     caption = post.caption or ""
     return {"title": caption[:200] or f"{post.owner_username} on Instagram", "author": post.owner_username,
             "text": caption[:100000], "items": items[:50]}
 
 
-def instagram_download(request):
-    loader, _post, items = instagram_post(request["url"])
+def instagram_download(request, cookies=()):
+    loader, _post, items = instagram_post(request["url"], cookies)
     wanted = set(request["keys"])
     selected = [item for item in items if item["key"] in wanted]
     if len(selected) != len(wanted):
@@ -256,21 +302,22 @@ def main():
         from instaloader import __version__ as instagram_version
         return {"gallery-dl": gallery_version, "yt-dlp": video_version, "Instaloader": instagram_version}
     request["url"] = web_url(request["url"])
+    cookies = session_cookies(request)
     if request["action"] == "inspect":
         if request["engine"] == "gallery":
-            return gallery_inspect(request["url"])
+            return gallery_inspect(request["url"], cookies)
         if request["engine"] == "instagram":
-            return instagram_inspect(request["url"])
-        return video_inspect(request)
+            return instagram_inspect(request["url"], cookies)
+        return video_inspect(request, cookies)
     if request["action"] == "download":
         if not 0 < len(request["keys"]) <= 50:
             raise ValueError("Select between 1 and 50 items.")
         Path(request["output"]).mkdir(parents=True, exist_ok=True)
         if request["engine"] == "gallery":
-            return gallery_download(request)
+            return gallery_download(request, cookies)
         if request["engine"] == "instagram":
-            return instagram_download(request)
-        return video_download(request)
+            return instagram_download(request, cookies)
+        return video_download(request, cookies)
     raise ValueError("Unknown extraction action.")
 
 
