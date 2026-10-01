@@ -7,6 +7,7 @@ import { openLibrary, newCollection, collectionSettings } from '../src/library.j
 import { parsePage, routeSource, webURL, inspectLink, materialize } from '../src/media.js';
 import { startFixture } from './fixture.js';
 import sharp from 'sharp';
+import { spawnSync } from 'node:child_process';
 
 test('only web URLs are accepted and target sites require individual posts', () => {
   for (const value of ['file:///etc/passwd', 'javascript:alert(1)', 'https://name:password@example.com', 'not a link']) assert.throws(() => webURL(value));
@@ -98,5 +99,24 @@ test('real downloads save selected files, reject HTML-as-media, and roll back in
     assert.deepEqual(await readdir(path.join(root, 'staging')), []);
     const controller = new AbortController(); controller.abort();
     await assert.rejects(inspectLink(`${fixture.url}/album`, controller.signal));
+  } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('portrait video previews preserve decoded colors after downscaling', async () => {
+  const fixture = await startFixture();
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-video-colors-'));
+  await openLibrary(root);
+  try {
+    const saved = await materialize(await inspectLink(`${fixture.url}/portrait.mp4`), root, true);
+    const preview = path.join(root, 'media', saved.items[0].previewFile);
+    const decoded = spawnSync(path.resolve('vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+      ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', preview, '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']);
+    assert.equal(decoded.status, 0, decoded.stderr.toString());
+    assert.equal(decoded.stdout.length, 406 * 720 * 3);
+    let red = 0;
+    for (let offset = 0; offset < decoded.stdout.length; offset += 3) {
+      if (decoded.stdout[offset] > 220 && decoded.stdout[offset + 1] < 50 && decoded.stdout[offset + 2] < 50) red++;
+    }
+    assert.ok(red / (406 * 720) > .99, 'the red source must stay red across the entire preview, without pink/green corruption');
   } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
 });

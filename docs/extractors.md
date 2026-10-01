@@ -57,7 +57,7 @@ Both discovery and downloading matter. First enumerate the available items and m
 6. Re-resolve expiring URLs through the chosen extractor at download time. Preserve required request headers/session context through the tool instead of assuming a copied CDN URL will work indefinitely.
 7. Report partial discovery, missing tools, login requirements, rate limits, unsupported formats and failed downloads distinctly. A preview-only result must never be marked as an offline original.
 
-Tool execution should use explicit argument arrays, app-owned output directories and an isolated configuration. Do not silently load user configurations, executable hooks, or browser cookies. Authenticated-source support needs an intentional account connection flow. Update tools independently of Papan's UI and retain their required notices when distributing them.
+Tool execution uses explicit argument arrays, app-owned output directories and an isolated configuration. User configurations and executable hooks are never loaded. The Privacy setting controls automatic browser-session fallback for X, Instagram, and YouTube after public extraction fails; only that site's cookies are read, and only for the extraction process. Update tools independently of Papan's UI and retain their required notices when distributing them.
 
 ## Verification before claiming support
 

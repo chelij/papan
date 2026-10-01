@@ -18,6 +18,7 @@ const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const bundledFFmpeg = path.join(project, 'vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
 const ffmpeg = existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg;
 export const MAX_FILE = 512 * 1024 * 1024;
+export const BROWSER_SESSION_MODES = ['', 'auto'];
 const MAX_HTML = 6 * 1024 * 1024;
 
 export function webURL(value, base) {
@@ -97,6 +98,8 @@ export async function extractWorker(request, signal) {
   try { data = JSON.parse(result.stdout); } catch { throw new Error('The media extractor stopped unexpectedly. Try again or check the source link.'); }
   if (!data.ok) {
     const reason = data.error || 'The source could not be extracted.';
+    if (!request.browser && /^['"]?Unavailable['"]?$/i.test(reason) && request.url && ['x.com', 'twitter.com', 'mobile.twitter.com'].includes(new URL(request.url).hostname.replace(/^www\./, ''))) throw new Error('X did not expose this post to Papan’s public downloader. Enable browser-session fallback in Privacy settings if it needs login.');
+    if (request.browser) throw new Error(`Browser-session fallback failed. ${reason.replace(/https?:\/\/\S+/g, '[source]').slice(0, 300)}`);
     if (/login|sign.in|cookie|authenticat|private|401|403|checkpoint|challenge/i.test(reason)) {
       throw new Error('This source is not available to public-only extraction right now. Papan does not use your login or browser cookies.');
     }
@@ -167,17 +170,29 @@ export function parsePage(html, sourceUrl) {
   return { sourceUrl, title: title.trim().slice(0, 200), author: article?.byline || '', text, items: items.slice(0, 50), engine: 'page' };
 }
 
-export async function inspectLink(input, signal) {
+export async function inspectLink(input, signal, browser = '') {
+  if (!BROWSER_SESSION_MODES.includes(browser)) throw new Error('Invalid browser-session mode.');
   const sourceUrl = webURL(input);
   let engine = routeSource(sourceUrl);
   if (engine !== 'page') {
     let data;
     try { data = await extractWorker({ action: 'inspect', url: sourceUrl, engine }, signal); }
     catch (error) {
-      if (engine !== 'gallery' || signal?.aborted) throw error;
-      const fallback = new URL(sourceUrl).hostname.endsWith('instagram.com') ? 'instagram' : 'video';
-      try { data = await extractWorker({ action: 'inspect', url: sourceUrl, engine: fallback }, signal); engine = fallback; }
-      catch { throw error; }
+      if (signal?.aborted) throw error;
+      const engines = engine === 'gallery' ? ['gallery', new URL(sourceUrl).hostname.endsWith('instagram.com') ? 'instagram' : 'video'] : [engine];
+      for (const candidate of engines.slice(1)) {
+        try { data = await extractWorker({ action: 'inspect', url: sourceUrl, engine: candidate }, signal); engine = candidate; break; }
+        catch { if (signal?.aborted) throw error; }
+      }
+      if (!data && browser) {
+        let failure;
+        for (const candidate of engines) {
+          try { data = await extractWorker({ action: 'inspect', url: sourceUrl, engine: candidate, browser }, signal); engine = candidate; break; }
+          catch (e) { failure ||= e; if (signal?.aborted) throw e; }
+        }
+        if (!data) throw failure;
+      }
+      if (!data) throw error;
     }
     const items = data.items.map(item => ({ ...item, url: safeRemote(item.url), poster: safeRemote(item.poster) }));
     if (data.text?.trim()) items.push({ key: 'text', kind: 'text', text: data.text });
@@ -185,7 +200,7 @@ export async function inspectLink(input, signal) {
   }
   const { response, url } = await fetchWeb(sourceUrl, { signal });
   // Redirects can turn short links into a known source.
-  if (routeSource(url) !== 'page') { await response.body?.cancel(); return inspectLink(url, signal); }
+  if (routeSource(url) !== 'page') { await response.body?.cancel(); return inspectLink(url, signal, browser); }
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
   const kind = kindFromType(contentType);
   if (kind) {
@@ -219,7 +234,8 @@ async function downloadDirect(item, destination, signal) {
   } catch (error) { await rm(partial, { force: true }); throw error; }
 }
 
-export async function materialize(pin, root, offline, signal, progress = () => {}) {
+export async function materialize(pin, root, offline, signal, progress = () => {}, browser = '') {
+  if (!BROWSER_SESSION_MODES.includes(browser)) throw new Error('Invalid browser-session mode.');
   const folder = randomUUID();
   const stage = path.join(root, 'staging', folder);
   const destination = path.join(root, 'media', folder);
@@ -229,8 +245,15 @@ export async function materialize(pin, root, offline, signal, progress = () => {
     let extracted = [];
     if (media.length && pin.engine !== 'page') {
       progress(offline ? 'downloading selected media…' : 'preparing previews…');
-      extracted = await extractWorker({ action: 'download', engine: pin.engine, url: pin.sourceUrl,
-        keys: media.map(item => item.key), output: stage, preview: !offline }, signal);
+      const request = { action: 'download', engine: pin.engine, url: pin.sourceUrl, keys: media.map(item => item.key), output: stage, preview: !offline };
+      try { extracted = await extractWorker(request, signal); }
+      catch (error) {
+        if (!browser || signal?.aborted) throw error;
+        // A failed album may have left partial files; retry the same selection cleanly.
+        await rm(stage, { recursive: true, force: true }); await mkdir(stage, { recursive: true, mode: 0o700 });
+        progress('retrying with browser session…');
+        extracted = await extractWorker({ ...request, browser }, signal);
+      }
     }
     const items = [];
     for (const [index, item] of pin.items.entries()) {
@@ -245,7 +268,7 @@ export async function materialize(pin, root, offline, signal, progress = () => {
       if (item.kind === 'video') {
         preview = path.join(stage, `${randomUUID()}.mp4`);
         const result = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', '-i', file,
-          '-an', '-vf', "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,fps=24",
+          '-an', '-vf', "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic+accurate_rnd,setsar=1,fps=24",
           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', preview], { signal, timeout: 300000 });
         if (result.code || !(await stat(preview)).size) throw new Error('Papan could not prepare a playable preview for this video.');
       } else {
@@ -262,7 +285,7 @@ export async function materialize(pin, root, offline, signal, progress = () => {
       const localFile = offline ? `${folder}/${path.basename(file)}` : null;
       const previewFile = `${folder}/${path.basename(preview)}`;
       if (!offline && preview !== file) await rm(file, { force: true });
-      items.push({ ...item, localPath: null, previewPath: null, localFile, previewFile, previewWidth, previewHeight });
+      items.push({ ...item, localPath: null, previewPath: null, localFile, previewFile, previewWidth, previewHeight, ...(item.kind === 'video' ? { previewVersion: 1 } : {}) });
     }
     await rename(stage, destination);
     return { ...pin, items, folder, offline };

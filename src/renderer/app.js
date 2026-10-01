@@ -2,7 +2,7 @@ const $ = id => document.getElementById(id);
 const api = window.papan;
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const mediaURL = (pin, item, original = false) => item.encrypted || item.previewFile || item.previewPath || item.localFile || item.localPath
-  ? `papan://media/${pin.id}/${item.id}/${original ? 'original' : 'preview'}?v=${encodeURIComponent(pin.folder || '')}` : item.url;
+  ? `papan://media/${pin.id}/${item.id}/${original ? 'original' : 'preview'}?v=${encodeURIComponent(pin.folder || item.previewVersion || '')}` : item.url;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let library = { collections: [], pins: [] }, collectionId = null, inspection = null;
 let temporaryTabs = [], tabOrder = [];
@@ -15,7 +15,10 @@ let layoutPreview = null;
 let collectionFileBusy = false, editingPin = null, undoId = null, exportRequest = null;
 let downloadStates = new Map();
 let passwordAction = null, passwordCollection = null, passwordReplacementTab = null, passwordBusy = false;
+let phoneState = null, phonePairing = null, phoneSeen = new Map();
 const visible = new Set();
+const previewSizeTimers = new Map();
+const previewRepairs = new Set();
 const defaults = { mode: 'online', openAction: 'saved', density: 3, fit: 'contain', motion: true, slideshowSeconds: 4 };
 const collection = () => library.collections.find(item => item.id === collectionId) || temporaryTabs.find(item => item.id === collectionId);
 const openCollections = () => {
@@ -41,6 +44,11 @@ async function refresh(preferred, replacementTab = null) {
   tabOrder = open.map(item => item.id);
   collectionId = [preferred, collectionId, unlocked[0]?.id].find(id => unlocked.some(item => item.id === id)) || null;
   render();
+  for (const pin of library.pins) {
+    if (!api.repairPreviews || previewRepairs.has(pin.id) || !pin.items.some(item => item.kind === 'video' && item.previewVersion !== 1 && (item.previewFile || item.previewPath || item.encrypted))) continue;
+    previewRepairs.add(pin.id);
+    api.repairPreviews(pin.id).catch(toastError);
+  }
   if (library.protectionWarning) toast(library.protectionWarning);
   if (open.some(item => item.id === preferred && item.locked)) openPassword('unlock', preferred, replacementTab);
 }
@@ -103,14 +111,6 @@ function itemRatio(item) {
   return width > 0 && height > 0 && Number.isFinite(ratio) && ratio > 0 ? ratio : null;
 }
 
-function albumRatio(items) {
-  const ratios = items.filter(item => item.kind !== 'text').map(itemRatio).filter(ratio => ratio !== null).sort((a, b) => a - b);
-  if (!ratios.length) return 1;
-  const middle = Math.floor(ratios.length / 2);
-  // A median in log space favors common proportions and balances wide/tall ties.
-  return ratios.length % 2 ? ratios[middle] : Math.sqrt(ratios[middle - 1]) * Math.sqrt(ratios[middle]);
-}
-
 async function prepareAlbum(card) {
   card._sizing = true;
   const cancel = [];
@@ -138,7 +138,6 @@ async function prepareAlbum(card) {
   })));
   card._sized = true; card._sizing = false; card._cancelSizing = null;
   if (!card.isConnected) return;
-  card._ratio = albumRatio(card._slides);
   scheduleLayout();
   if (visible.has(card)) showSlide(card);
 }
@@ -156,7 +155,6 @@ function appendPins() {
     card._slides = pin.previews ? pin.previews.map(preview => pin.items.find(item => item.id === preview.itemId)) : visual.length ? visual : pin.items;
     card.classList.toggle('album', card._slides.length > 1);
     card._index = Math.max(0, card._slides.findIndex(item => item.id === pin.coverId));
-    card._ratio = albumRatio(card._slides);
     card._sized = card._slides.length < 2 || card._slides.every(item => item.kind === 'text' || itemRatio(item));
     card._last = Date.now();
     const domain = new URL(pin.sourceUrl).hostname.replace(/^www\./, '');
@@ -169,7 +167,6 @@ function appendPins() {
   }
   shown += next.length;
   $('sentinel').hidden = shown >= filtered.length;
-  $('end-note').hidden = !filtered.length || shown < filtered.length;
   $('end-note').textContent = `${filtered.length} ${filtered.length === 1 ? 'pin' : 'pins'} · keep collecting`;
   scheduleLayout();
 }
@@ -192,42 +189,31 @@ function layoutPins() {
       cards.splice(before === -1 ? cards.length : before, 0, moving);
     }
   }
-  const ratios = cards.map(card => settings().fit === 'cover' ? 1 : card._ratio);
-  // Default density aims for 360px rows; narrower windows naturally fit fewer items.
-  const targetHeight = Math.min(width, 1080 / settings().density);
-  let start = 0, top = padding;
-  while (start < cards.length) {
-    let end = start, sum = 0;
-    while (end < cards.length) {
-      if (end > start && width - gap * (end - start) <= 0) break;
-      const nextHeight = (width - gap * (end - start)) / (sum + ratios[end]);
-      const previousHeight = (width - gap * (end - start - 1)) / sum;
-      if (end > start && nextHeight <= targetHeight && Math.abs(previousHeight - targetHeight) < Math.abs(nextHeight - targetHeight)) break;
-      sum += ratios[end++];
-      if (nextHeight <= targetHeight) break;
-    }
-    const fittedHeight = (width - gap * (end - start - 1)) / sum;
-    const height = Math.min(fittedHeight, targetHeight * (end === cards.length ? 1 : 1.5));
-    let left = padding;
-    for (let index = start; index < end; index++) {
-      const tileWidth = height * ratios[index];
+  const ratios = library.pins.filter(pin => grid.dataset.scope === 'all' || pin.collectionId === collectionId)
+    .flatMap(pin => pin.items.filter(item => item.kind !== 'text').map(itemRatio)).filter(ratio => ratio !== null).sort((a, b) => a - b);
+  const ratio = settings().fit === 'cover' || !ratios.length ? 1 : ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length;
+  // Default density aims for 360px columns shared by every row.
+  const columns = Math.max(1, Math.round((width + gap) / (1080 / settings().density + gap)));
+  const tileWidth = (width - gap * (columns - 1)) / columns;
+  const height = tileWidth / ratio;
+  let top = padding;
+  for (let start = 0; start < cards.length; start += columns) {
+    for (let index = start; index < Math.min(start + columns, cards.length); index++) {
+      const left = padding + (index - start) * (tileWidth + gap);
       Object.assign(cards[index].style, { left: `${left}px`, top: `${top}px`, width: `${tileWidth}px`, height: `${height}px` });
-      left += tileWidth + gap;
     }
     top += height + gap;
-    start = end;
   }
   grid.style.height = `${cards.length ? top - gap + padding : 0}px`;
   requestAnimationFrame(loadNearEnd);
 }
 
-function rememberDimensions(card, item, width, height) {
+function rememberDimensions(item, width, height) {
   const ratio = width / height;
-  if (!Number.isFinite(ratio) || ratio <= 0) return;
+  if (itemRatio(item) !== null || !Number.isFinite(ratio) || ratio <= 0) return;
   item.previewWidth = width;
   item.previewHeight = height;
-  // An album's shared frame stays fixed as its slides change.
-  if (card._slides.length === 1 && Math.abs(card._ratio - ratio) > 0.001) { card._ratio = ratio; scheduleLayout(); }
+  scheduleLayout();
 }
 
 new ResizeObserver(() => {
@@ -255,7 +241,7 @@ async function showSlide(card) {
     video.setAttribute('aria-label', card._pin.title);
     let start = preview?.start || 0;
     video.addEventListener('loadedmetadata', () => {
-      rememberDimensions(card, item, video.videoWidth, video.videoHeight);
+      rememberDimensions(item, video.videoWidth, video.videoHeight);
       if (start >= video.duration) start = 0;
       if (start) video.currentTime = start;
     });
@@ -294,7 +280,7 @@ async function showSlide(card) {
       card._loaded = true;
       return;
     }
-    rememberDimensions(card, item, img.naturalWidth, img.naturalHeight);
+    rememberDimensions(item, img.naturalWidth, img.naturalHeight);
     target.replaceChildren(img);
   }
   card.querySelectorAll('.slide-dot').forEach((dot, index) => dot.classList.toggle('active', index === card._index % 6));
@@ -385,7 +371,7 @@ async function findMedia() {
   addRequest = requestId;
   $('inspection').hidden = true;
   $('add-error').textContent = '';
-  $('add-status').textContent = 'finding public media…';
+  $('add-status').textContent = 'finding media…';
   busyAdd(true);
   try {
     const data = await api.inspect({ url: $('link-input').value.trim(), requestId });
@@ -546,9 +532,22 @@ function openSettings(create = false) {
   for (const details of $('settings-dialog').querySelectorAll('details')) details.open = false;
   showSettingsSection('general');
   $('settings-dialog').showModal();
+  $('browser-session-settings').hidden = create || !api.browserSession;
+  if (!create && api.browserSession) {
+    $('browser-session').disabled = true; $('browser-session-status').textContent = '';
+    api.browserSession().then(value => { $('browser-session').checked = value === 'auto'; $('browser-session').disabled = false; }).catch(error => { $('browser-session-status').textContent = error.message; });
+  }
   if (create) $('collection-name').focus();
   else api.tools().then(versions => { $('tool-versions').textContent = `gallery-dl ${versions['gallery-dl']} · yt-dlp ${versions['yt-dlp']} · Instaloader ${versions.Instaloader}`; }).catch(error => { $('tool-versions').textContent = error.message; });
 }
+
+$('browser-session').onchange = async () => {
+  const select = $('browser-session'); select.disabled = true;
+  $('browser-session-status').textContent = 'saving preference…';
+  try { await api.setBrowserSession(select.checked ? 'auto' : ''); $('browser-session-status').textContent = ''; }
+  catch (error) { $('browser-session-status').textContent = error.message; select.checked = await api.browserSession() === 'auto'; }
+  finally { select.disabled = false; }
+};
 
 $('settings-form').onsubmit = async event => {
   event.preventDefault();
@@ -659,6 +658,7 @@ $('delete-collection').onclick = () => confirmRemove(`Remove “${collection().n
 $('viewer-prev').onclick = () => { viewerIndex = (viewerIndex + viewerPin.items.length - 1) % viewerPin.items.length; renderViewer(); };
 $('viewer-next').onclick = () => { viewerIndex = (viewerIndex + 1) % viewerPin.items.length; renderViewer(); };
 $('open-source').onclick = () => api.openSource(viewerPin.id).catch(toastError);
+$('copy-link').onclick = () => api.copyLink(viewerPin.id).then(() => toast('link copied')).catch(toastError);
 $('library-folder').onclick = () => api.openFolder(collectionId).catch(toastError);
 
 async function saveCollectionFile(chooseDestination = false) {
@@ -841,7 +841,8 @@ function updateDrop() {
     }
   }
   const bounds = container.getBoundingClientRect(), toolbarBottom = $('toolbar').getBoundingClientRect().bottom;
-  if (x < bounds.left || x > bounds.right || y < Math.max(bounds.top, kind === 'pin' ? toolbarBottom : 0) || y > Math.min(bounds.bottom, innerHeight)) return;
+  const bottom = kind === 'pin' ? $('board-footer').getBoundingClientRect().top : innerHeight;
+  if (x < bounds.left || x > bounds.right || y < Math.max(bounds.top, kind === 'pin' ? toolbarBottom : 0) || y > Math.min(bounds.bottom, bottom)) return;
   if (kind === 'pin') {
     const point = [x, y, scrollX, scrollY, container.clientWidth, container.children.length].join(':');
     // Reflow must not pick another target underneath a stationary pointer.
@@ -879,10 +880,11 @@ function updateDrop() {
 function scrollDrag() {
   if (!dragState) return;
   const { container, kind, x, y } = dragState, bounds = container.getBoundingClientRect();
-  if (x >= bounds.left && x <= bounds.right && y >= 0 && y <= innerHeight) {
+  const bottom = kind === 'pin' ? $('board-footer').getBoundingClientRect().top : innerHeight;
+  if (x >= bounds.left && x <= bounds.right && y >= 0 && y <= bottom) {
     if (kind === 'pin' && y >= $('toolbar').getBoundingClientRect().bottom) {
       const top = $('toolbar').getBoundingClientRect().bottom + 45;
-      window.scrollBy(0, y < top ? -Math.min(18, (top - y) / 2) : Math.max(0, Math.min(18, (y - innerHeight + 60) / 2)));
+      window.scrollBy(0, y < top ? -Math.min(18, (top - y) / 2) : Math.max(0, Math.min(18, (y - bottom + 60) / 2)));
     } else if (kind === 'collection' && y >= bounds.top && y <= bounds.bottom) {
       container.scrollLeft += x < bounds.left + 35 ? -12 : x > bounds.right - 35 ? 12 : 0;
     }
@@ -959,6 +961,22 @@ document.addEventListener('dragleave', event => {
     dragState.x = -1; dragState.y = -1; updateDrop();
   }
 });
+document.addEventListener('wheel', event => {
+  const current = collection();
+  if (!event.ctrlKey || !event.deltaY || event.clientY < $('toolbar').getBoundingClientRect().bottom || event.clientY >= $('board-footer').getBoundingClientRect().top || !current || current.temporary || current.locked || dragState || document.querySelector('dialog[open]')) return;
+  event.preventDefault();
+  const density = Math.max(1, Math.min(10, current.settings.density + Math.sign(event.deltaY)));
+  if (density === current.settings.density) return;
+  current.settings.density = density;
+  scheduleLayout();
+  clearTimeout(previewSizeTimers.get(current.id));
+  previewSizeTimers.set(current.id, setTimeout(async () => {
+    previewSizeTimers.delete(current.id);
+    try { await api.setPreviewSize({ id: current.id, density }); }
+    catch (error) { toastError(error); await refresh().catch(toastError); }
+  }, 200));
+}, { passive: false });
+
 document.addEventListener('keydown', event => {
   if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
   const tab = event.target.closest('.collection-tab'), pin = event.target.closest('.tile-main')?.closest('.pin');
@@ -1430,7 +1448,7 @@ $('password-dialog').addEventListener('close', () => {
 function renderDownloads(tasks, initial = false) {
   const pending = tasks.filter(task => ['queued', 'running'].includes(task.state)).length;
   const unfinished = tasks.filter(task => task.state !== 'completed');
-  $('downloads-toggle').hidden = !pending;
+  $('downloads-toggle').hidden = !unfinished.length;
   $('download-count').textContent = pending || '';
   $('review-downloads').hidden = !unfinished.length;
   if (!unfinished.length) $('downloads-panel').hidePopover();
@@ -1460,3 +1478,65 @@ $('download-list').onclick = async event => {
 api.onDownloads(tasks => renderDownloads(tasks));
 api.downloads().then(tasks => renderDownloads(tasks, true)).catch(toastError);
 refresh().then(() => { if (!collectionId && openCollections().length) switchCollection(openCollections()[0].id); }).catch(toastError);
+
+function renderPhoneInbox(value, initial = false) {
+  phoneState = value;
+  $('phone-pair').disabled = !value.running;
+  $('phone-status').textContent = value.error || (value.running ? `listening · ${value.host}:${value.port}` : 'receiver is off');
+  if (!phonePairing || phonePairing.expiresAt !== value.pairingExpiresAt || Date.now() >= phonePairing.expiresAt) {
+    phonePairing = null; $('phone-pairing').hidden = true;
+  }
+  $('phone-devices').innerHTML = value.devices.length ? value.devices.map(device => `<article class="phone-entry phone-device"><span>${escapeHTML(device.name)}</span><button class="text-button" data-phone-device="${escapeHTML(device.id)}">revoke</button></article>`).join('') : '<p class="hint">no paired devices</p>';
+  $('phone-clear').disabled = !value.entries.some(entry => entry.state === 'saved');
+  $('phone-entries').innerHTML = value.entries.length ? [...value.entries].reverse().slice(0, 100).map(entry => `<article class="phone-entry" role="listitem"><p>${escapeHTML(entry.title)}</p><p class="hint">${escapeHTML(entry.error || (entry.locked && entry.state === 'queued' ? 'waiting for collection unlock' : entry.progress || entry.state))}</p><div class="button-group">${entry.state === 'failed' ? `<button class="text-button" data-phone-entry="${entry.id}" data-phone-action="retryPhoneShare">retry</button>` : ''}${entry.state !== 'running' ? `<button class="text-button" data-phone-entry="${entry.id}" data-phone-action="dismissPhoneShare">dismiss</button>` : '<progress aria-label="Saving shared link"></progress>'}</div></article>`).join('') : '<p class="hint">no incoming links</p>';
+  for (const entry of value.entries) if (!initial && phoneSeen.get(entry.id) !== entry.state && ['saved', 'failed'].includes(entry.state)) {
+    toast(entry.state === 'saved' ? 'saved link from phone' : 'phone share failed · open Receive from phone to retry');
+    if (entry.state === 'saved') refresh().catch(toastError);
+  }
+  phoneSeen = new Map(value.entries.map(entry => [entry.id, entry.state]));
+}
+async function openPhoneSharing() {
+  $('phone-error').textContent = '';
+  try {
+    await refresh(); renderPhoneInbox(await api.phoneReceiver(), true);
+    $('phone-enabled').checked = phoneState.enabled;
+    $('phone-port').value = phoneState.port;
+    $('phone-address').innerHTML = phoneState.addresses.map(item => `<option value="${escapeHTML(item.address)}">${escapeHTML(item.name)} · ${escapeHTML(item.address)}</option>`).join('');
+    if (phoneState.addresses.some(item => item.address === phoneState.host)) $('phone-address').value = phoneState.host;
+    $('phone-collection').innerHTML = library.collections.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}${item.locked ? ' · locked' : ''}</option>`).join('') + '<option value="new-inbox">+ create Inbox collection</option>';
+    $('phone-collection').value = library.collections.some(item => item.id === phoneState.collectionId) ? phoneState.collectionId : collectionId && !collection()?.temporary ? collectionId : library.collections[0]?.id || 'new-inbox';
+    $('phone-save').disabled = !phoneState.addresses.length && !phoneState.enabled;
+    if (!phoneState.addresses.length) $('phone-error').textContent = 'Connect to a local network to enable phone sharing.';
+    $('phone-dialog').showModal();
+  } catch (error) { toastError(error); }
+}
+$('receive-phone').onclick = $('receive-empty-phone').onclick = openPhoneSharing;
+$('phone-form').onsubmit = async event => {
+  event.preventDefault(); $('phone-save').disabled = true; $('phone-error').textContent = '';
+  try {
+    const value = await api.configurePhone({ enabled: $('phone-enabled').checked, collectionId: $('phone-collection').value, host: $('phone-address').value, port: Number($('phone-port').value) });
+    await refresh(); renderPhoneInbox(value, true);
+    $('phone-collection').innerHTML = library.collections.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join('') + '<option value="new-inbox">+ create Inbox collection</option>';
+    $('phone-collection').value = value.collectionId;
+  } catch (error) { errorAt('phone-error', error); }
+  finally { $('phone-save').disabled = false; }
+};
+$('phone-pair').onclick = async () => {
+  $('phone-pair').disabled = true; $('phone-error').textContent = '';
+  try { phonePairing = await api.pairPhone(); $('phone-qr').src = phonePairing.qr; $('phone-pair-url').value = phonePairing.url; $('phone-pairing').hidden = false; }
+  catch (error) { errorAt('phone-error', error); }
+  finally { $('phone-pair').disabled = !phoneState?.running; }
+};
+$('phone-devices').onclick = async event => {
+  const button = event.target.closest('[data-phone-device]'); if (!button) return;
+  button.disabled = true;
+  try { await api.revokePhone(button.dataset.phoneDevice); } catch (error) { errorAt('phone-error', error); button.disabled = false; }
+};
+$('phone-entries').onclick = async event => {
+  const button = event.target.closest('[data-phone-entry]'); if (!button) return;
+  button.disabled = true;
+  try { await api[button.dataset.phoneAction](button.dataset.phoneEntry); } catch (error) { errorAt('phone-error', error); button.disabled = false; }
+};
+$('phone-clear').onclick = () => api.clearPhoneReceipts().catch(error => errorAt('phone-error', error));
+api.onPhoneInbox?.(value => renderPhoneInbox(value));
+api.phoneReceiver?.().then(value => renderPhoneInbox(value, true)).catch(toastError);

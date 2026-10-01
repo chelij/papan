@@ -31,6 +31,7 @@ try {
   await page.exposeFunction('createSettingsCollection', input => { const c = newCollection(input.name, input.settings); state.collections.push(c); return structuredClone(c); });
   await page.addInitScript(() => {
     window.papan = { library: () => window.readSettingsLibrary(), updateCollection: input => window.saveSettings(input), createCollection: input => window.createSettingsCollection(input),
+      browserSession: async () => 'auto', setBrowserSession: async value => value,
       downloads: async () => [], onDownloads() {}, onProgress() {}, cancel: async () => {}, tools: async () => ({ 'gallery-dl': '1.32.14', 'yt-dlp': '2026.08.19', Instaloader: '4.15.3' }) };
   });
   await page.goto(pathToFileURL(path.resolve('src/renderer/index.html')).href);

@@ -1,5 +1,6 @@
 import { _electron as electron, expect } from 'playwright/test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -18,8 +19,10 @@ for (const [index, [w, h]] of ratios.entries()) {
   pins.push({ id: randomUUID(), collectionId: collections[0].id, title: `pin ${index + 1}`, sourceUrl: `https://example.com/${index}`, folder,
     coverId: itemId, items: [{ id: itemId, kind: 'image', previewFile: `${folder}/${file}`, previewWidth: w * 100, previewHeight: h * 100 }] });
 }
-// Drag an album whose common shape differs from its starting cover.
+// Drag an album whose cover differs from the collection's average media shape.
 pins[0].items.push(...Array.from({ length: 3 }, () => ({ ...pins[1].items[0], id: randomUUID() })));
+const mediaRatios = pins.flatMap(pin => pin.items.map(item => item.previewWidth / item.previewHeight));
+const collectionRatio = mediaRatios.reduce((sum, ratio) => sum + ratio, 0) / mediaRatios.length;
 const otherPin = { ...pins[0], id: randomUUID(), title: 'another collection', collectionId: collections[1].id, offline: true };
 await writeFile(path.join(data, 'library', 'library.json'), JSON.stringify({ version: 1, collections, pins: [...pins, otherPin] }));
 let app, page;
@@ -30,6 +33,10 @@ const savedPinOrder = () => page.evaluate(id => window.papan.library().then(libr
 async function launch() {
   app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: undefined } });
   page = await app.firstWindow();
+  if (process.env.DISPLAY === ':97') {
+    const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
+    assert.equal(spawnSync('xprop', ['-display', ':97', '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+  }
   page.on('pageerror', error => errors.push(error.message));
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible())).toBe(true);
   await expect(page.getByRole('tab')).toHaveCount(collections.length);
@@ -40,7 +47,7 @@ try {
   await mkdir('artifacts', { recursive: true });
   await launch();
   await expect(page.locator('.pin')).toHaveCount(pins.length);
-  await expect(page.locator('.toolbar-actions > button:visible')).toHaveCount(5);
+  await expect(page.locator('.toolbar-actions > button:visible')).toHaveCount(6);
   assert.ok(await page.evaluate(() => {
     const logo = document.querySelector('.wordmark').getBoundingClientRect(), mode = document.querySelector('#storage-mode').getBoundingClientRect();
     return mode.top >= logo.bottom && Math.abs(mode.left - logo.left) < 2;
@@ -65,7 +72,7 @@ try {
   const hoverGeometry = await pinGeometry();
   assert.deepEqual(await savedPinOrder(), pins.map(pin => pin.id), 'hovering does not save the preview');
   const placeholder = await page.locator('.pin.dragging').boundingBox();
-  assert.ok(Math.abs(placeholder.width / placeholder.height - 4 / 3) < .01, 'outline keeps the shared album proportions, independent of its cover');
+  assert.ok(Math.abs(placeholder.width / placeholder.height - collectionRatio) < .01, 'outline keeps the collection-wide frame proportions, independent of its cover');
   await page.waitForTimeout(450);
   assert.deepEqual(await pinGeometry(), hoverGeometry, 'stationary hover does not shuffle the board');
   await page.screenshot({ path: 'artifacts/pin-drag-preview.png' });
@@ -118,6 +125,11 @@ try {
   assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), []);
   await page.getByRole('button', { name: 'open original ↗', exact: true }).click();
   assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), [pins[1].sourceUrl]);
+  const clipboardBefore = await app.evaluate(({ clipboard }) => clipboard.readText());
+  await page.getByRole('button', { name: 'copy link', exact: true }).click();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), pins[1].sourceUrl);
+  await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), clipboardBefore);
+  assert.deepEqual(await app.evaluate(() => globalThis.papanOpened), [pins[1].sourceUrl], 'copying does not open the browser');
   await page.getByRole('button', { name: 'Close viewer', exact: true }).click();
 
   const beforeInvalid = await page.evaluate(() => window.papan.library());

@@ -16,6 +16,7 @@ Papan's desktop code is **GPL-3.0-or-later**. The independently executed extract
 | Mozilla Readability | Apache-2.0 | Article extraction. [Source](https://github.com/mozilla/readability). |
 | Cheerio / jsdom | MIT | HTML parsing. [Cheerio](https://github.com/cheeriojs/cheerio), [jsdom](https://github.com/jsdom/jsdom). |
 | Sharp | Apache-2.0 | Image processing. [Source](https://github.com/lovell/sharp). |
+| qrcode | MIT | Local phone-pairing QR images. [Source](https://github.com/soldair/node-qrcode). |
 | libvips and its native dependencies | LGPL-2.1-or-later and bundled component licenses | Sharp's dynamically loaded native libraries. [Sources/build scripts](https://github.com/lovell/sharp-libvips), [libvips source](https://github.com/libvips/libvips). |
 | PyInstaller | GPL-2.0-or-later with bootloader exception | Builds the separate helper. [Source/exception](https://pyinstaller.org/en/stable/license.html). |
 

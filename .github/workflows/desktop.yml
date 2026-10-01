@@ -47,6 +47,9 @@ jobs:
           xvfb-run -a npm run test:interactions
           xvfb-run -a npm run test:collections
           xvfb-run -a npm run test:organization
+          xvfb-run -a npm run test:phone
+          xvfb-run -a npm run test:browser-session
+          xvfb-run -a npm run test:preview-repair
       - name: Desktop workflows (Windows and macOS)
         if: runner.os != 'Linux'
         shell: bash
@@ -97,6 +100,7 @@ jobs:
         run: |
           xvfb-run -a npm run test:desktop
           xvfb-run -a npm run test:organization
+          xvfb-run -a npm run test:phone
       - name: Verify packaged app (Windows and macOS)
         if: runner.os != 'Linux'
         shell: bash

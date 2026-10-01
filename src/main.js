@@ -1,15 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, session, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename, mkdir, realpath, rm, copyFile, stat } from 'node:fs/promises';
 import { openLibrary, newCollection, collectionName, collectionSettings, pinDetails, pinPreviews } from './library.js';
 import { collectionContents, saveCollectionFile, readCollectionFile, mediaLocation } from './collection-files.js';
-import { inspectLink, materialize, removeMedia, extractWorker, webURL } from './media.js';
+import { inspectLink, materialize, removeMedia, extractWorker, webURL, BROWSER_SESSION_MODES } from './media.js';
 import { openDownloadQueue } from './download-queue.js';
 import { exportBundle, importBundle } from './portable.js';
 import { isVault, vaultHeader } from './vault.js';
 import { fileResponse } from './file-response.js';
+import { openPhoneReceiver } from './phone-receiver.js';
+import { savePhoneLink } from './phone-save.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName('Papan');
@@ -17,15 +19,17 @@ app.commandLine.appendSwitch('disable-http-cache');
 if (process.env.PAPAN_DATA_DIR) app.setPath('userData', path.resolve(process.env.PAPAN_DATA_DIR));
 protocol.registerSchemesAsPrivileged([{ scheme: 'papan', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const inspections = new Map(), jobs = new Map();
-let library, window, downloads, protectionBusy = false;
+let library, window, downloads, phoneReceiver, protectionBusy = false;
+let browserSession = 'auto', browserSessionWrites = Promise.resolve();
 
 async function changeLibrary(operation, saveId = null) {
   const restorations = [];
-  let restoreDownloads, preserveRestorations = false;
+  let restoreDownloads, restorePhoneInbox, preserveRestorations = false;
   try {
     return await library.mutate(operation, async () => {
       const failures = [];
       try { await restoreDownloads?.(); } catch (error) { failures.push(error); }
+      try { await restorePhoneInbox?.(); } catch (error) { failures.push(error); }
       for (const { file, contents, copy } of restorations.reverse()) {
         const temporary = `${file}.${randomUUID()}.rollback`;
         try {
@@ -50,6 +54,7 @@ async function changeLibrary(operation, saveId = null) {
       if (failures.length) throw new AggregateError(failures, failures.map(error => error.message).join(' '));
     }, async (draft, before) => {
       if (protectionBusy) restoreDownloads = await downloads.recode(draft);
+      if (protectionBusy) restorePhoneInbox = await phoneReceiver?.recode(draft);
       for (const collection of draft.collections) {
         if (!collection.destination) continue;
         const previous = before.collections.find(item => item.id === collection.id);
@@ -74,7 +79,7 @@ async function changeLibrary(operation, saveId = null) {
 }
 
 async function protectCollection(input, action) {
-  if (jobs.size || downloads.snapshot().some(task => ['queued', 'running'].includes(task.state))) throw new Error('Wait for downloads and other saves to finish before changing the lock.');
+  if (jobs.size || phoneReceiver?.busy || downloads.snapshot().some(task => ['queued', 'running'].includes(task.state))) throw new Error('Wait for downloads and other saves to finish before changing the lock.');
   protectionBusy = true;
   try {
     await session.defaultSession.clearCache();
@@ -82,7 +87,11 @@ async function protectCollection(input, action) {
     inspections.clear();
     downloads.publish();
     return result === undefined ? library.publicSnapshot() : result;
-  } finally { protectionBusy = false; }
+  } finally { protectionBusy = false; phoneReceiver?.pump(); publishPhoneInbox(); }
+}
+
+function publishPhoneInbox(value = phoneReceiver?.snapshot()) {
+  if (value && window && !window.isDestroyed()) window.webContents.send('papan:phone-inbox', value);
 }
 
 async function openCollectionFile(file) {
@@ -144,7 +153,7 @@ async function savePin({ pin }, signal, progress) {
   if (!target) throw new Error('The destination collection was removed.');
   library.requireUnlocked(target.id);
   if (snapshot.pins.some(item => item.collectionId === pin.collectionId && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in this collection.');
-  const saved = await materialize(pin, library.root, target.settings.mode === 'offline', signal, progress);
+  const saved = await materialize(pin, library.root, target.settings.mode === 'offline', signal, progress, browserSession);
   try {
     return await changeLibrary(draft => {
       signal?.throwIfAborted();
@@ -168,7 +177,7 @@ async function updateCollection(input, signal, progress = () => {}) {
     const pins = settings.mode === 'offline' ? snapshot.pins.filter(pin => pin.collectionId === input.id && !pin.offline) : [];
     for (const [index, pin] of pins.entries()) {
       progress(`downloading originals · pin ${index + 1} of ${pins.length}`);
-      converted.push(await materialize(pin, library.root, true, signal, message => progress(`pin ${index + 1} of ${pins.length} · ${message}`)));
+      converted.push(await materialize(pin, library.root, true, signal, message => progress(`pin ${index + 1} of ${pins.length} · ${message}`), browserSession));
     }
     return await changeLibrary(draft => {
       signal?.throwIfAborted();
@@ -190,6 +199,24 @@ async function updateCollection(input, signal, progress = () => {}) {
 }
 
 async function updatePin(input, signal, progress) {
+  if (input.repairPreviews) {
+    const pin = library.snapshot().pins.find(pin => pin.id === input.id);
+    if (!pin) throw new Error('Pin not found.');
+    library.requireUnlocked(pin.collectionId);
+    if (!pin.items.some(item => item.kind === 'video' && item.previewVersion !== 1)) return { pin, collectionId: pin.collectionId };
+    const saved = await materialize(pin, library.root, pin.offline, signal, progress, browserSession);
+    try {
+      return await changeLibrary(draft => {
+        signal?.throwIfAborted();
+        const current = draft.pins.find(item => item.id === pin.id);
+        if (JSON.stringify(current) !== JSON.stringify(pin)) throw new Error('This pin changed while rebuilding its preview. Retry the repair.');
+        Object.assign(current, { items: saved.items, folder: saved.folder });
+        return { pin: current, collectionId: current.collectionId };
+      });
+    } finally {
+      if (!library.snapshot().pins.some(pin => pin.folder === saved.folder)) await removeMedia(library.root, saved.folder);
+    }
+  }
   const details = pinDetails(input), snapshot = library.snapshot();
   const pin = snapshot.pins.find(pin => pin.id === input.id), target = snapshot.collections.find(item => item.id === input.collectionId);
   if (!pin || !target) throw new Error('The pin or collection no longer exists.');
@@ -199,7 +226,7 @@ async function updatePin(input, signal, progress) {
   if (snapshot.pins.some(item => item.id !== pin.id && item.collectionId === target.id && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in the destination collection.');
   let saved;
   try {
-    if (target.settings.mode === 'offline' && !pin.offline) saved = await materialize(pin, library.root, true, signal, progress);
+    if (target.settings.mode === 'offline' && !pin.offline) saved = await materialize(pin, library.root, true, signal, progress, browserSession);
     return await changeLibrary(draft => {
       signal?.throwIfAborted();
       const current = draft.pins.find(item => item.id === pin.id), destination = draft.collections.find(item => item.id === target.id);
@@ -263,13 +290,42 @@ function handle(name, action) {
 
 function installHandlers() {
   handle('library', () => library.publicSnapshot());
+  handle('phone-receiver', () => phoneReceiver.snapshot());
+  handle('configure-phone', async input => {
+    let created;
+    if (input.enabled && input.collectionId === 'new-inbox') {
+      created = await changeLibrary(draft => { const c = newCollection('Inbox'); draft.collections.push(c); return c; });
+      input = { ...input, collectionId: created.id };
+    }
+    try { return await phoneReceiver.configure(input); }
+    catch (error) {
+      if (created) await changeLibrary(draft => { if (!draft.pins.some(pin => pin.collectionId === created.id)) draft.collections = draft.collections.filter(c => c.id !== created.id); });
+      throw error;
+    }
+  });
+  handle('pair-phone', () => phoneReceiver.pair());
+  handle('revoke-phone', id => phoneReceiver.revoke(id));
+  handle('retry-phone-share', id => phoneReceiver.retry(id));
+  handle('dismiss-phone-share', id => phoneReceiver.dismiss(id));
+  handle('clear-phone-receipts', () => phoneReceiver.clearSaved());
   handle('unlock-collection', input => protectCollection(input, (draft, id) => library.protection.unlock(draft, id, input.password)));
   handle('lock-collection', input => protectCollection(input, (draft, id) => library.protection.lock(draft, id)));
   handle('protect-collection', input => protectCollection(input, (draft, id) => library.protection.setPassword(draft, id, input.password, input.currentPassword)));
   handle('cancel', id => { jobs.get(id)?.abort(); });
   handle('tools', () => extractWorker({ action: 'versions' }));
+  handle('browser-session', () => browserSession);
+  handle('set-browser-session', value => {
+    if (!BROWSER_SESSION_MODES.includes(value)) throw new Error('Invalid browser-session mode.');
+    const save = browserSessionWrites.then(async () => {
+      const file = path.join(library.root, 'browser-session.json'), temporary = `${file}.${randomUUID()}.tmp`;
+      try { await writeFile(temporary, JSON.stringify({ browser: value }), { mode: 0o600 }); await rename(temporary, file); browserSession = value; }
+      finally { await rm(temporary, { force: true }); }
+      return browserSession;
+    });
+    browserSessionWrites = save.catch(() => {}); return save;
+  });
   handle('inspect', input => job(input.requestId, async signal => {
-    const result = await inspectLink(input.url, signal);
+    const result = await inspectLink(input.url, signal, browserSession);
     if (signal.aborted) throw new Error('Cancelled.');
     const id = randomUUID();
     for (const [key, value] of inspections) if (Date.now() - value.time > 30 * 60 * 1000) inspections.delete(key);
@@ -301,6 +357,19 @@ function installHandlers() {
     return collection;
   }));
   handle('update-collection', input => job(input.requestId, (signal, progress) => updateCollection(input, signal, progress)));
+  handle('set-preview-size', input => changeLibrary(draft => { library.requireUnlocked(input.id, draft).settings.density = collectionSettings({ density: input.density }).density; }));
+  handle('copy-link', id => {
+    const pin = library.snapshot().pins.find(pin => pin.id === id);
+    if (!pin) throw new Error('Pin not found.');
+    library.requireUnlocked(pin.collectionId);
+    clipboard.writeText(pin.sourceUrl);
+  });
+  handle('repair-previews', id => {
+    const pin = library.snapshot().pins.find(pin => pin.id === id);
+    if (!pin) throw new Error('Pin not found.');
+    library.requireUnlocked(pin.collectionId);
+    return downloads.add('pin', { id, collectionId: pin.collectionId, repairPreviews: true }, `Repair video preview · ${pin.title}`);
+  });
   handle('enqueue-collection', input => {
     const payload = { id: input.id, name: collectionName(input.name), settings: collectionSettings(input.settings) };
     library.requireUnlocked(payload.id);
@@ -483,6 +552,11 @@ else {
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
   app.whenReady().then(async () => {
     library = await openLibrary(path.join(app.getPath('userData'), 'library'));
+    try {
+      const saved = JSON.parse(await readFile(path.join(library.root, 'browser-session.json'), 'utf8'));
+      if (!BROWSER_SESSION_MODES.includes(saved.browser)) throw new Error('Invalid browser-session setting.');
+      browserSession = saved.browser;
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
     await rm(path.join(library.root, 'staging'), { recursive: true, force: true });
     await collectUnusedMedia();
     const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime' };
@@ -511,11 +585,25 @@ else {
       encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()),
       decode: (task, required) => library.protection.decodeTask(task, required),
     });
+    phoneReceiver = await openPhoneReceiver(library.root, {
+      run: (task, signal, progress) => savePhoneLink(task, { snapshot: library.snapshot, requireUnlocked: id => library.requireUnlocked(id), inspect: (url, signal) => inspectLink(url, signal, browserSession), save: savePin }, signal, progress),
+      collection: (id, unlocked = true) => unlocked ? library.requireUnlocked(id) : library.snapshot().collections.find(c => c.id === id) || (() => { throw new Error('Choose a destination collection.'); })(),
+      available: () => !protectionBusy, publish: publishPhoneInbox,
+      codec: { encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()), decode: task => library.protection.decodeTask(task) },
+    });
     installHandlers();
     await createWindow();
+    phoneReceiver.pump();
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
   }).catch(error => { dialog.showErrorBox('Papan could not start', error.message); app.quit(); });
-  app.on('before-quit', () => downloads?.stop());
+  let quitting = false;
+  app.on('before-quit', event => {
+    downloads?.stop();
+    if (phoneReceiver && !quitting) {
+      event.preventDefault();
+      void phoneReceiver.stop().finally(() => { quitting = true; app.quit(); });
+    }
+  });
   app.on('will-quit', () => library?.protection.clear());
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 }
