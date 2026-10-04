@@ -39,9 +39,9 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.2.1/Papan-0.2.1-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.2.1/Papan-0.2.1-win32-x64.zip) | Release checks use the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.2.1/Papan-0.2.1-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.2.2/Papan-0.2.2-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.2.2/Papan-0.2.2-win32-x64.zip) | Release checks use the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.2.2/Papan-0.2.2-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
 
 The previous [v0.2.0 pre-release run](https://github.com/chelij/papan/actions/runs/36671197665) and [tagged release run](https://github.com/chelij/papan/actions/runs/36671799461) passed native source and packaged-app checks on all three platforms. The [release workflow](.github/workflows/desktop.yml) gates every new desktop package on native source and packaged-app checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 

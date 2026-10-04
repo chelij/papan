@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — 2026-10-04
+## 0.2.2 — 2026-10-04
 
-Changes since [c2d3268](https://github.com/chelij/papan/commit/c2d3268).
+Changes since [v0.2.1](https://github.com/chelij/papan/releases/tag/v0.2.1).
 
 ### Changed
 
@@ -21,6 +21,7 @@ Changes since [c2d3268](https://github.com/chelij/papan/commit/c2d3268).
 - Add headless regression suites for scrolling and video visibility, and run both in Linux CI.
 - Cover adaptive zoom at window widths from 560 to 3840 pixels, zoom limits, smooth-scroll accumulation, top-pin retention, search summaries, lazy loading, and final-row alignment.
 - Extend settings validation and saved-list tests for intermediate preview sizes, and update desktop checks for the expanded zoom range.
+- Model cancellation explicitly in the temporary-tab workflow regression.
 
 ### Compatibility
 

@@ -1,16 +1,15 @@
-Papan v0.2.1 adds local phone sharing and improves collection browsing and downloads.
+Papan v0.2.2 improves board scrolling, preview zoom, and video playback visibility.
 
-- Pair [Papan for Android](https://github.com/chelij/papan-android) over a trusted local network. Shared or pasted phone links save into the selected collection, with persistent queues, receipts, retry, duplicate handling, and locked-collection protection. Download the APK from the companion's [Releases](https://github.com/chelij/papan-android/releases/latest).
-- Try public extraction first, then automatically find an existing desktop browser login for X, Instagram, or YouTube when needed. Disable this fallback in Privacy settings. Cookies stay local and are never sent to a phone.
-- Align every collection row in equal-width columns. Preview frames use the average proportions of the collection's media; square frames remain available.
-- Resize previews with Ctrl + mouse wheel anywhere between the header and footer. Preview size persists with the collection.
-- Keep the pin count and Downloads button in a fixed footer. Copy a pin's original link beside Open original.
-- Fix pink video previews with accurate scaling, and rebuild older previews without changing saved originals.
+- Scroll smoothly by one row per mouse-wheel step, using the current preview height. Rapid wheel input accumulates rows; reduced-motion preferences disable the animation.
+- Choose from 40 preview-size levels, with finer steps and smaller previews. Ctrl + mouse wheel skips levels that would leave the column layout unchanged at the current window width.
+- Keep the same pin in the top row when zooming or resizing, including when zoom changes during a scroll animation.
+- Scroll any row to the top, including the final row, with blank space below the board. Row alignment no longer leaves a strip of the preceding row visible beneath the header.
+- Pause videos outside the visible board, in clipped viewer/editor areas, and when the window or document is hidden. Resume from the retained playback position when allowed, while preserving explicit pauses and reduced-motion settings.
 
-Android source, APK builds, device-test runner, and releases are maintained separately in [chelij/papan-android](https://github.com/chelij/papan-android). Desktop source and the local receiver protocol remain here. iPhone Shortcut preparation is documented; it has not been tested on iPhone.
+Existing collections keep their saved preview size; the default now displays as level 35 on the expanded scale. Collections saved with intermediate or newly expanded preview sizes require an updated Papan build when opened elsewhere. [Full changelog](https://github.com/chelij/papan/blob/v0.2.2/CHANGELOG.md).
 
-Libraries remain compatible with v0.2.0. Local sharing uses ordinary HTTP; use a trusted network and allow the selected desktop TCP port through its firewall. Download the archive matching your OS/architecture, extract it, and launch `papan`, `papan.exe`, or `Papan.app`. Keep the extracted folder together. Python and media tools are bundled. Each archive includes a SHA-256 checksum.
+Download the archive matching your OS/architecture, extract it, and launch `papan`, `papan.exe`, or `Papan.app`. Keep the extracted folder together. Python and media tools are bundled. Each archive includes a SHA-256 checksum.
 
 The release workflow gates publication on native Linux, Windows, and macOS checks, real media conversion, and packaged-app workflows. Desktop builds remain unsigned; Windows signing and macOS notarization are not configured. Source-platform availability and browser-session access can vary. No sample library or cloud account is bundled.
 
-Desktop code is GPL-3.0-or-later; the separate extraction helper is GPL-2.0-only. Packages retain dependency notices and corresponding Python/FFmpeg/x264/dav1d sources. [Third-party notices](https://github.com/chelij/papan/blob/v0.2.1/THIRD-PARTY.md).
+Desktop code is GPL-3.0-or-later; the separate extraction helper is GPL-2.0-only. Packages retain dependency notices and corresponding Python/FFmpeg/x264/dav1d sources. [Third-party notices](https://github.com/chelij/papan/blob/v0.2.2/THIRD-PARTY.md).
