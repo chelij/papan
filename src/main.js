@@ -542,6 +542,13 @@ async function createWindow() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
+  const publishVisibility = () => {
+    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send('papan:window-visibility', window.isVisible() && !window.isMinimized());
+    }
+  };
+  for (const event of ['show', 'hide', 'minimize', 'restore']) window.on(event, publishVisibility);
+  window.webContents.on('did-finish-load', publishVisibility);
   window.on('closed', () => { for (const controller of jobs.values()) controller.abort(); window = null; });
   window.once('ready-to-show', () => window.show());
   await window.loadURL('papan://app/index.html');

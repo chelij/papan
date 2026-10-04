@@ -24,9 +24,11 @@ All seven renderer suites passed in isolated headless Chromium during local pref
 | --- | --- |
 | `test:previews` | Saved-item selection, both range handles, decoded boundary frames, independent video ranges, clip looping, complete viewer media, cancellation, validation, and queued preview metadata |
 | `test:playback` | Production byte responses, forward/backward seeking, timeline clicks, saved-video playback after the source server stops, and stable settings bounds with classic scrollbars |
+| `test:visibility` | Decoded-video position retention, viewport edges, header/footer coverage, pauses, reduced motion, simulated window/document visibility, zooming, and clipped viewer/editor playback |
 | `test:slideshow` | No blank frames after the first image; delayed/broken-image handling, slide order and display intervals, collection switches during loading, and video-to-image transitions |
 | `test:protection` | Password setup/change/removal, unlock popups and cancellation, locked search/media, restart locking, encrypted video seeking, successful queue cleanup, and failed-task access |
 | `test:settings` | Compact sections, keyboard navigation, stable bounds, drafts and autosave, hidden-field validation, save failures, creation, and short-window scrolling |
+| `test:scroll` | Adaptive wheel steps and limits at 560–3840px, top pin retained across zoom, preceding rows fully hidden, smooth wheel accumulation, animation cancellation, row boundaries, resizing, preview-size controls, search, lazy loading, and the last row reaching the top |
 | `test:tabs` | Temporary tabs, shortcuts, ordering, close/reopen, narrow layouts, password cancellation, unchanged metadata after unused/cancelled tabs, and exactly one collection on the first confirmed save |
 | `test:history` | Clearing and failed saves, restart persistence, All collections access, ordinary/encrypted reopening, and new recent entries after closing; collection files, media, and removal history remain intact |
 
@@ -34,7 +36,7 @@ Encryption unit tests cover incorrect passwords, altered manifests and media chu
 
 ## Native release checks
 
-The [desktop workflow](../.github/workflows/desktop.yml) repeats syntax, unit, and all five source desktop suites on Linux x64, Windows x64, and macOS ARM64. Linux also runs all seven renderer suites using the runner's Google Chrome. Every platform builds its native helper/media tools, checks AV1-to-H.264 processing, packages the app, and reruns the desktop and organization suites against the packaged executable. Tagged releases publish only after every build passes. [Recorded runs](https://github.com/chelij/papan/actions/workflows/desktop.yml) identify the exact commit and runner versions.
+The [desktop workflow](../.github/workflows/desktop.yml) repeats syntax, unit, and all five source desktop suites on Linux x64, Windows x64, and macOS ARM64. Linux also runs all nine renderer suites using the runner's Google Chrome. Every platform builds its native helper/media tools, checks AV1-to-H.264 processing, packages the app, and reruns the desktop and organization suites against the packaged executable. Tagged releases publish only after every build passes. [Recorded runs](https://github.com/chelij/papan/actions/workflows/desktop.yml) identify the exact commit and runner versions.
 
 The [v0.2.0 pre-release run](https://github.com/chelij/papan/actions/runs/36671197665) passed on 30 September 2026 at commit `5b5871d`, the commit tagged `v0.2.0`. The [tagged release run](https://github.com/chelij/papan/actions/runs/36671799461) repeated every build and test successfully before publishing all three native archives. Both runs also passed all seven Linux renderer suites. All published archive upload digests match the accompanying SHA-256 files; the checksum-file digests were verified too. No native test window was opened on the primary local monitor.
 

@@ -63,8 +63,9 @@ test('collection settings validate boundary values', () => {
     assert.equal(collectionSettings({ slideshowSeconds: value }).slideshowSeconds, value);
   }
   assert.equal(collectionSettings({ columns: 7 }).density, 7);
+  for (const density of [0.5, 1.5, 2.5, 10.5, 20]) assert.equal(collectionSettings({ density }).density, density);
   for (const [tileSize, density] of [['small', 4], ['medium', 3], ['large', 2]]) assert.equal(collectionSettings({ tileSize }).density, density);
-  for (const input of [{ mode: 'anything' }, { density: 0 }, { density: 11 }, { density: 1.5 }, { tileSize: 'huge' }, { slideshowSeconds: 0 }, { slideshowSeconds: 11 }, { slideshowSeconds: 2.5 }, { motion: 'yes' }]) assert.throws(() => collectionSettings(input));
+  for (const input of [{ mode: 'anything' }, ...[0, 20.5, 0.75, 1.25, NaN, Infinity, '3', true].map(density => ({ density })), { tileSize: 'huge' }, { slideshowSeconds: 0 }, { slideshowSeconds: 11 }, { slideshowSeconds: 2.5 }, { motion: 'yes' }]) assert.throws(() => collectionSettings(input));
   assert.throws(() => newCollection('  '));
 });
 

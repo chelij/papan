@@ -18,9 +18,11 @@ npm run test:collections
 npm run test:organization
 npm run test:previews
 npm run test:playback
+npm run test:visibility
 npm run test:slideshow
 npm run test:protection
 npm run test:settings
+npm run test:scroll
 npm run test:tabs
 npm run test:history
 npm run test:phone
@@ -37,11 +39,15 @@ For `test:android-ui`, build the companion's `--test` APK in that repository, th
 
 `test:playback` runs the renderer in the same isolated browser against the production file-response code over loopback HTTP. It checks byte responses, forward/backward seeking, native timeline clicks, and resumed playback from a saved MP4 after the original source server stops. The preload API is stubbed; it does not exercise Electron's custom protocol registration.
 
+`test:visibility` checks decoded video playback in isolated headless Chromium: scroll-out/scroll-in position retention, viewport edges, header/footer coverage, explicit pauses, reduced motion, zooming, and clipped viewer/editor playback. Native-window visibility signals and hidden-document events are simulated through the stubbed preload boundary; native Electron window visibility is a separate check.
+
 `test:slideshow` holds an image response past the slideshow interval and samples rendered frames to check that the previous image stays visible. It also checks slide order/timing, broken images, collection switches during loading, and video-to-image transitions. It uses the actual renderer, SVG/PNG/GIF images and decoded video in isolated headless Chromium, with the preload API stubbed.
 
 `test:protection` uses the actual renderer, library, encryption, queue, and ranged media response in headless Chromium. It checks password setup/change/removal, immediate unlock popups for tabs and file opening, cancellation during unlock, locked search/media, restart, video seeking, and automatic queue cleanup. IPC is stubbed and the `papan:` media scheme is mapped to loopback HTTP. Unit tests separately exercise authentication, corruption, recovery, file ownership, cross-collection moves, and portable encrypted copies. [Encryption format](encryption.md).
 
 `test:settings` checks the compact sections, keyboard navigation, draft preservation, autosave from each section, validation of hidden fields, failure recovery, creation, and short-window scrolling in isolated headless Chromium. It also captures each settings section. The preload boundary is stubbed.
+
+`test:scroll` checks adaptive wheel zoom at window widths from 560 to 3840 pixels, both visible zoom limits, fully hidden preceding rows including fractional scroll positions at the last row, row alignment after zooming, zoom round trips, rapid smooth wheel input, zoom during animation, partial scroll positions, window resizing, live preview-size controls, search summaries, lazy loading, and the final row reaching the top. It uses the actual renderer in isolated headless Chromium with the preload boundary stubbed.
 
 `test:browser-session` checks the actual Privacy toggle, IPC validation, private preference file, and restart persistence on an isolated display. Set `PAPAN_TEST_X_URL` explicitly to test a login-required post using local browser discovery; ordinary test runs do not read personal browser sessions. Unit checks use a synthetic Firefox cookie database and a fake helper to verify domain scoping, public-first extraction, cancellation, and clean download retries.
 
@@ -71,7 +77,7 @@ Set `PAPAN_EXECUTABLE` to the packaged executable and rerun `test:desktop` and `
 
 ## Releases
 
-The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform and all seven isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
+The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform and all nine isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
 
 Before tagging, update `package.json`, the lockfile, the README's versioned download links, and [release notes](release-notes.md), then inspect the passing main-branch run. Signed installers, macOS notarization, and an updater are not implemented. Keep platform claims tied to recorded runner evidence.
 

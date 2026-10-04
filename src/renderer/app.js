@@ -8,7 +8,7 @@ let library = { collections: [], pins: [] }, collectionId = null, inspection = n
 let temporaryTabs = [], tabOrder = [];
 let selected = new Set(), coverId = null, addRequest = null, settingsRequest = null, settingsOriginal = null;
 let creatingCollection = false, shown = 0, filtered = [], viewerPin = null, viewerIndex = 0;
-let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0;
+let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0, gridRowHeight = 0, wheelScrollTarget = null, layoutAnchor = null;
 let dragState = null, dragFrame = 0, reorderPending = false;
 let pinPreview = null;
 let layoutPreview = null;
@@ -16,6 +16,7 @@ let collectionFileBusy = false, editingPin = null, undoId = null, exportRequest 
 let downloadStates = new Map();
 let passwordAction = null, passwordCollection = null, passwordReplacementTab = null, passwordBusy = false;
 let phoneState = null, phonePairing = null, phoneSeen = new Map();
+let appWindowVisible = true;
 const visible = new Set();
 const previewSizeTimers = new Map();
 const previewRepairs = new Set();
@@ -26,7 +27,7 @@ const openCollections = () => {
   return tabOrder.map(id => tabs.find(item => item.id === id)).filter(Boolean).concat(tabs.filter(item => !tabOrder.includes(item.id)));
 };
 const settings = () => layoutPreview || collection()?.settings || defaults;
-const motion = () => settings().motion && !reducedMotion.matches && !document.hidden && !document.querySelector('dialog[open]:not(#settings-dialog)') && !($('settings-dialog').open && creatingCollection);
+const motion = () => settings().motion && !reducedMotion.matches && appWindowVisible && !document.hidden && !document.querySelector('dialog[open]:not(#settings-dialog)') && !($('settings-dialog').open && creatingCollection);
 
 function toast(message, removalId = null) {
   clearTimeout(toastTimer);
@@ -54,6 +55,8 @@ async function refresh(preferred, replacementTab = null) {
 }
 
 function render() {
+  wheelScrollTarget = layoutAnchor = null;
+  $('canvas').style.paddingBottom = '0px';
   $('toolbar').hidden = !library.collections.length && !temporaryTabs.length;
   document.body.classList.toggle('has-collections', !$('toolbar').hidden);
   const open = openCollections(), tabStop = collectionId || open[0]?.id;
@@ -196,7 +199,14 @@ function layoutPins() {
   const columns = Math.max(1, Math.round((width + gap) / (1080 / settings().density + gap)));
   const tileWidth = (width - gap * (columns - 1)) / columns;
   const height = tileWidth / ratio;
-  let top = padding;
+  const resized = cards.length && parseFloat(cards[0].style.width) > 0 && (Math.abs(parseFloat(cards[0].style.width) - tileWidth) > 0.01 || Math.abs(parseFloat(cards[0].style.height) - height) > 0.01);
+  if (resized) {
+    layoutAnchor ||= cards.find(card => card.getBoundingClientRect().bottom > $('toolbar').getBoundingClientRect().bottom + gap)?.dataset.pinId;
+    wheelScrollTarget = null;
+    window.scrollTo({ top: scrollY, behavior: 'instant' });
+  }
+  gridRowHeight = height + gap;
+  let top = gap;
   for (let start = 0; start < cards.length; start += columns) {
     for (let index = start; index < Math.min(start + columns, cards.length); index++) {
       const left = padding + (index - start) * (tileWidth + gap);
@@ -205,6 +215,13 @@ function layoutPins() {
     top += height + gap;
   }
   grid.style.height = `${cards.length ? top - gap + padding : 0}px`;
+  // Keep room for the last row's scroll target to round upward by one pixel.
+  $('canvas').style.paddingBottom = `${cards.length ? Math.max(0, innerHeight - $('toolbar').offsetHeight - $('board-footer').offsetHeight - height - gap - padding + 1) : 0}px`;
+  if (resized && layoutAnchor) {
+    const anchor = cards.find(card => card.dataset.pinId === layoutAnchor);
+    if (anchor) window.scrollTo({ top: Math.ceil(Math.max(0, scrollY + grid.getBoundingClientRect().top + parseFloat(anchor.style.top) - $('toolbar').getBoundingClientRect().bottom - gap)), behavior: 'instant' });
+  }
+  schedulePlayback();
   requestAnimationFrame(loadNearEnd);
 }
 
@@ -234,7 +251,8 @@ async function showSlide(card) {
     video.src = source || '';
     video.muted = true;
     video.defaultMuted = true;
-    video.autoplay = Boolean(motion());
+    // Visibility owns playback; native autoplay could start outside the canvas.
+    video.autoplay = false;
     video.loop = card._slides.length === 1 && !preview;
     video.playsInline = true;
     video.preload = 'metadata';
@@ -250,18 +268,18 @@ async function showSlide(card) {
         if (card._loading || !video.isConnected || preview.end == null || video.currentTime < preview.end || video.seeking) return;
         if (card._slides.length > 1) {
           video.pause();
-          if (motion()) { card._index = (card._index + 1) % card._slides.length; showSlide(card); }
+          if (visible.has(card) && motion()) { card._index = (card._index + 1) % card._slides.length; showSlide(card); }
         } else video.currentTime = start;
       });
       video.addEventListener('ended', () => {
         if (card._slides.length !== 1) return;
         video.currentTime = start;
-        if (visible.has(card) && motion()) video.play().catch(() => {});
+        syncVideoPlayback(video);
       });
     }
     target.replaceChildren(video);
     video.addEventListener('error', () => mediaError(target, 'video preview unavailable'));
-    if (motion()) video.play().catch(() => {});
+    watchVideo(video, { autoplay: true, board: true });
   } else {
     const img = document.createElement('img');
     img.draggable = false;
@@ -295,7 +313,90 @@ function mediaError(target, message) {
   target.replaceChildren(fallback);
 }
 
+// Keep playback intent separate from visibility pauses. pause/play events are
+// asynchronous, so count our own transitions rather than treating them as user input.
+const videoPlayback = new Map();
+// Report the transition from an edge contact (zero area) to visible pixels too.
+const videoObserver = new IntersectionObserver(entries => {
+  for (const entry of entries) {
+    const state = videoPlayback.get(entry.target);
+    if (state) { state.visible = entry.isIntersecting && entry.intersectionRatio > 0; syncVideoPlayback(entry.target); }
+  }
+}, { threshold: [0, Number.EPSILON] });
+
+function videoIsVisible(video, state) {
+  if (!appWindowVisible || document.hidden || !state.visible || !video.checkVisibility()) return false;
+  if (!state.board) return true;
+  const bounds = video.getBoundingClientRect();
+  // Sticky/fixed app chrome is inside the browser viewport but covers the board.
+  const top = Math.max(0, $('toolbar').getBoundingClientRect().bottom);
+  const bottom = Math.min(innerHeight, $('board-footer').getBoundingClientRect().top);
+  return bounds.bottom > top && bounds.top < bottom && bounds.right > 0 && bounds.left < innerWidth;
+}
+
+function suspendVideo(video, state) {
+  if (video.paused) return;
+  state.pauses++;
+  video.pause();
+}
+
+function syncVideoPlayback(video) {
+  if (!video) {
+    for (const media of videoPlayback.keys()) syncVideoPlayback(media);
+    return;
+  }
+  const state = videoPlayback.get(video);
+  if (!state) return;
+  if (!video.isConnected) { suspendVideo(video, state); videoObserver.unobserve(video); videoPlayback.delete(video); return; }
+  const allowed = state.board ? motion() : state.manual || settings().motion && !reducedMotion.matches;
+  if (!videoIsVisible(video, state) || !allowed) { suspendVideo(video, state); return; }
+  if (state.wantsPlay && video.paused && !video.ended) {
+    state.plays++;
+    video.play().catch(error => state.onError?.(error));
+  }
+}
+
+function watchVideo(video, { autoplay = false, board = false, onError } = {}) {
+  const state = { visible: false, wantsPlay: autoplay, board, onError, manual: false, pauses: 0, plays: 0 };
+  videoPlayback.set(video, state);
+  video.addEventListener('pause', () => {
+    if (state.pauses) { state.pauses--; return; }
+    if (board && video.ended) return;
+    state.wantsPlay = false;
+    state.manual = false;
+  });
+  video.addEventListener('play', () => {
+    if (state.plays) state.plays--;
+    else { state.wantsPlay = true; state.manual = true; }
+    syncVideoPlayback(video);
+  });
+  video.addEventListener('ended', () => { if (!board) state.wantsPlay = false; });
+  videoObserver.observe(video);
+}
+
+function playVideo(video) {
+  const state = videoPlayback.get(video);
+  if (state) { state.wantsPlay = true; state.manual = true; syncVideoPlayback(video); }
+}
+
 function pause(card) { card.querySelector('video')?.pause(); }
+
+let playbackFrame = 0;
+function schedulePlayback() {
+  if (!playbackFrame) playbackFrame = requestAnimationFrame(() => { playbackFrame = 0; syncVideoPlayback(); });
+}
+// Native window events also cover desktops where document.hidden stays false.
+api.onWindowVisibility?.(value => { appWindowVisible = value === true; syncVideoPlayback(); });
+document.addEventListener('visibilitychange', () => syncVideoPlayback());
+reducedMotion.addEventListener('change', () => syncVideoPlayback());
+document.addEventListener('scroll', schedulePlayback, { capture: true, passive: true });
+window.addEventListener('resize', schedulePlayback);
+new MutationObserver(() => syncVideoPlayback()).observe(document.body, {
+  subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'hidden']
+});
+watchVideo($('clip-player'), { onError: error => {
+  if ($('edit-covers').querySelector('.editing') && $('clip-player').dataset.playClip) $('clip-hint').textContent = error.message;
+} });
 
 const observer = new IntersectionObserver(entries => {
   for (const entry of entries) {
@@ -305,16 +406,15 @@ const observer = new IntersectionObserver(entries => {
       if (!card._loaded && !card._sizing && !card._loading) {
         if (card._sized) showSlide(card); else prepareAlbum(card);
       }
-      if (motion() && !card._loading) card.querySelector('video')?.play().catch(() => {});
+      syncVideoPlayback(card.querySelector('video'));
       card._last = Date.now();
     } else {
       visible.delete(card);
-      pause(card);
-      const video = card.querySelector('video');
-      if (video) { video.removeAttribute('src'); video.load(); card._loaded = false; }
+      const video = card.querySelector('video'), state = videoPlayback.get(video);
+      if (state) suspendVideo(video, state);
     }
   }
-}, { threshold: 0.05 });
+}, { threshold: 0 });
 
 function loadNearEnd() {
   if (shown < filtered.length && $('sentinel').getBoundingClientRect().top < innerHeight + 700) appendPins();
@@ -326,7 +426,8 @@ window.addEventListener('resize', () => {
 });
 
 setInterval(() => {
-  if (!motion()) { for (const card of visible) pause(card); return; }
+  syncVideoPlayback();
+  if (!motion()) return;
   const now = Date.now();
   for (const card of visible) {
     if (card._sizing || card._loading) continue;
@@ -334,7 +435,7 @@ setInterval(() => {
     if (card._slides.length > 1 && (video ? video.ended : now - card._last >= settings().slideshowSeconds * 1000)) {
       card._index = (card._index + 1) % card._slides.length;
       showSlide(card);
-    } else video?.play().catch(() => {});
+    }
   }
 }, 400);
 
@@ -444,7 +545,7 @@ $('save-pin').onclick = async () => {
 
 $('preview-size').oninput = () => {
   $('size-value').value = $('preview-size').value;
-  $('preview-size').setAttribute('aria-valuetext', `${$('preview-size').value} of 10`);
+  $('preview-size').setAttribute('aria-valuetext', `${$('preview-size').value} of ${$('preview-size').max}`);
 };
 $('slide-seconds').oninput = () => {
   $('slideshow-value').value = `${$('slide-seconds').value} s`;
@@ -452,13 +553,12 @@ $('slide-seconds').oninput = () => {
 };
 $('settings-form').addEventListener('input', event => {
   if (creatingCollection || !$('settings-dialog').open || !['preview-size', 'media-fit', 'slide-seconds', 'motion'].includes(event.target.id)) return;
-  layoutPreview = { ...collection().settings, density: 11 - Number($('preview-size').value), fit: $('media-fit').value,
+  layoutPreview = { ...collection().settings, density: (41 - Number($('preview-size').value)) / 2, fit: $('media-fit').value,
     slideshowSeconds: Number($('slide-seconds').value), motion: $('motion').checked };
   $('grid').dataset.fit = settings().fit;
   scheduleLayout();
   for (const card of visible) {
-    const video = card.querySelector('video');
-    if (motion() && !card._loading) video?.play().catch(() => {}); else video?.pause();
+    syncVideoPlayback(card.querySelector('video'));
     if (['slide-seconds', 'motion'].includes(event.target.id)) card._last = Date.now();
   }
 });
@@ -499,7 +599,7 @@ function openSettings(create = false) {
   $('collection-name').placeholder = 'name this corner of the internet';
   $('collection-mode').value = current.settings.mode;
   // Keep the saved density format so existing collections retain their layout.
-  $('preview-size').value = 11 - current.settings.density;
+  $('preview-size').value = 41 - current.settings.density * 2;
   $('media-fit').value = current.settings.fit;
   $('slide-seconds').value = current.settings.slideshowSeconds;
   $('preview-size').oninput();
@@ -554,7 +654,7 @@ $('settings-form').onsubmit = async event => {
   if (settingsRequest || !$('settings-form').reportValidity()) return;
   const requestId = crypto.randomUUID();
   const input = { id: settingsOriginal?.id, requestId, name: $('collection-name').value, settings: {
-    mode: $('collection-mode').value, openAction: 'saved', density: 11 - Number($('preview-size').value), fit: $('media-fit').value,
+    mode: $('collection-mode').value, openAction: 'saved', density: (41 - Number($('preview-size').value)) / 2, fit: $('media-fit').value,
     motion: $('motion').checked, slideshowSeconds: Number($('slide-seconds').value),
   } };
   if (!creatingCollection && input.name.trim() === settingsOriginal.name && Object.keys(input.settings).every(key => input.settings[key] === settingsOriginal.settings[key])) {
@@ -626,10 +726,11 @@ function renderViewer() {
   } else {
     const media = document.createElement(item.kind === 'video' ? 'video' : 'img');
     media.src = source || '';
-    if (item.kind === 'video') { media.controls = true; media.autoplay = true; media.muted = true; media.playsInline = true; }
+    if (item.kind === 'video') { media.controls = true; media.muted = true; media.playsInline = true; }
     else media.alt = item.alt || viewerPin.title;
     media.addEventListener('error', () => mediaError($('viewer-media'), 'this saved media could not be opened'));
     $('viewer-media').replaceChildren(media);
+    if (item.kind === 'video') watchVideo(media, { autoplay: true });
   }
   $('viewer-position').textContent = `${viewerIndex + 1} / ${viewerPin.items.length}`;
   $('viewer-prev').disabled = viewerPin.items.length < 2;
@@ -961,12 +1062,38 @@ document.addEventListener('dragleave', event => {
     dragState.x = -1; dragState.y = -1; updateDrop();
   }
 });
+document.addEventListener('scrollend', () => { wheelScrollTarget = null; });
+document.addEventListener('pointerdown', () => { wheelScrollTarget = layoutAnchor = null; }, true);
+document.addEventListener('keydown', event => {
+  wheelScrollTarget = null;
+  if (!['Control', 'Meta', 'Shift', 'Alt'].includes(event.key) && event.target.id !== 'preview-size') layoutAnchor = null;
+}, true);
 document.addEventListener('wheel', event => {
   const current = collection();
-  if (!event.ctrlKey || !event.deltaY || event.clientY < $('toolbar').getBoundingClientRect().bottom || event.clientY >= $('board-footer').getBoundingClientRect().top || !current || current.temporary || current.locked || dragState || document.querySelector('dialog[open]')) return;
+  if (!event.deltaY || event.clientY < $('toolbar').getBoundingClientRect().bottom || event.clientY >= $('board-footer').getBoundingClientRect().top || dragState || document.querySelector('dialog[open]') || event.target.closest('[popover]')) return;
+  if (!event.ctrlKey) {
+    if (event.shiftKey || event.altKey || event.metaKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || $('grid').hidden || !$('grid').childElementCount) return;
+    if (layoutFrame) { cancelAnimationFrame(layoutFrame); layoutPins(); }
+    if (!gridRowHeight) return;
+    event.preventDefault();
+    layoutAnchor = null;
+    const origin = scrollY + $('grid').getBoundingClientRect().top - $('toolbar').getBoundingClientRect().bottom;
+    const direction = Math.sign(event.deltaY), position = ((wheelScrollTarget ?? scrollY) - origin + direction) / gridRowHeight;
+    const row = (direction > 0 ? Math.floor(position) : Math.ceil(position)) + direction;
+    wheelScrollTarget = Math.ceil(Math.max(0, Math.min(document.documentElement.scrollHeight - innerHeight, origin + row * gridRowHeight)));
+    window.scrollTo({ top: wheelScrollTarget, behavior: reducedMotion.matches ? 'instant' : 'smooth' });
+    return;
+  }
+  if (!current || current.temporary || current.locked) return;
   event.preventDefault();
-  const density = Math.max(1, Math.min(10, current.settings.density + Math.sign(event.deltaY)));
-  if (density === current.settings.density) return;
+  const width = $('grid').clientWidth - 24, step = Math.sign(event.deltaY) / 2;
+  const columns = Math.max(1, Math.round((width + 8) / (1080 / current.settings.density + 8)));
+  let density = current.settings.density;
+  do {
+    const next = Math.max(0.5, Math.min(20, density + step));
+    if (next === density) return;
+    density = next;
+  } while (width > 0 && Math.max(1, Math.round((width + 8) / (1080 / density + 8))) === columns);
   current.settings.density = density;
   scheduleLayout();
   clearTimeout(previewSizeTimers.get(current.id));
@@ -1249,7 +1376,7 @@ $('play-clip').onclick = () => {
   player.hidden = false;
   player.dataset.playClip = 'true';
   if (player.readyState >= 1) player.currentTime = row._preview.start;
-  player.play().catch(error => { if (row.classList.contains('editing') && player.dataset.playClip) $('clip-hint').textContent = error.message; });
+  playVideo(player);
 };
 $('clip-player').addEventListener('loadedmetadata', () => {
   const row = $('edit-covers').querySelector('.editing');

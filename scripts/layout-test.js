@@ -88,11 +88,11 @@ try {
   const seconds = page.getByRole('slider', { name: 'slideshow interval', exact: true });
   for (const slider of [size, seconds]) {
     await expect(slider).toHaveAttribute('min', '1');
-    await expect(slider).toHaveAttribute('max', '10');
+    await expect(slider).toHaveAttribute('max', slider === size ? '40' : '10');
   }
-  await expect(size).toHaveValue('8');
+  await expect(size).toHaveValue('35');
   await size.press('End');
-  await expect(page.locator('#size-value')).toHaveText('10');
+  await expect(page.locator('#size-value')).toHaveText('40');
   await seconds.press('End');
   await expect(page.locator('#slideshow-value')).toHaveText('10 s');
   await seconds.press('Home');
@@ -105,7 +105,7 @@ try {
   await devtools.send('Emulation.clearDeviceMetricsOverride');
   await devtools.detach();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
-  await expect(size).toHaveValue('10');
+  await expect(size).toHaveValue('40');
   const track = await size.boundingBox();
   await page.mouse.move(track.x + track.width - 6, track.y + track.height / 2);
   await page.mouse.down();
@@ -126,21 +126,27 @@ try {
   await page.getByRole('slider', { name: 'preview size', exact: true }).press('End');
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
-  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 1);
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 0.5);
   const savedSettings = (await page.evaluate(() => window.papan.library())).collections[0].settings;
   const canvas = await page.locator('#canvas').boundingBox();
+  const previewWidth = await page.locator('.pin').first().evaluate(card => card.getBoundingClientRect().width);
   await page.mouse.move(canvas.x + 30, canvas.y + 30);
   await page.keyboard.down('Control');
   await page.mouse.wheel(0, 120);
-  await expect.poll(() => page.evaluate(() => window.papan.library().then(data => data.collections[0].settings.density))).toBe(2);
+  await expect.poll(() => page.locator('.pin').first().evaluate(card => card.getBoundingClientRect().width)).toBeLessThan(previewWidth);
+  await expect.poll(() => page.evaluate(() => window.papan.library().then(data => data.collections[0].settings.density))).toBeGreaterThan(0.5);
+  const smallerDensity = (await page.evaluate(() => window.papan.library())).collections[0].settings.density;
   await page.mouse.wheel(0, -120);
-  await expect.poll(() => page.evaluate(() => window.papan.library().then(data => data.collections[0].settings.density))).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.papan.library().then(data => data.collections[0].settings.density))).toBeLessThan(smallerDensity);
+  assert.ok(Math.abs(await page.locator('.pin').first().evaluate(card => card.getBoundingClientRect().width) - previewWidth) < 0.1, 'adaptive wheel zoom returns to the largest visible size');
+  const largestSettings = (await page.evaluate(() => window.papan.library())).collections[0].settings;
+  assert.deepEqual({ ...largestSettings, density: savedSettings.density }, savedSettings, 'wheel changes only preview size');
   await page.mouse.wheel(0, -120);
   await page.keyboard.up('Control');
-  assert.deepEqual((await page.evaluate(() => window.papan.library())).collections[0].settings, savedSettings, 'wheel changes only preview size and clamps at the largest size');
+  assert.deepEqual((await page.evaluate(() => window.papan.library())).collections[0].settings, largestSettings, 'wheel stops at the largest visible size');
   const zoom = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getZoomFactor());
   assert.equal(zoom, 1, 'Ctrl+wheel changes previews without zooming the window');
-  for (const density of [0, 11, 1.5]) {
+  for (const density of [0, 20.5, 0.75, 1.25, '3']) {
     assert.equal(await page.evaluate(async density => {
       const data = await window.papan.library();
       try { await window.papan.setPreviewSize({ id: data.collections[0].id, density }); return false; } catch { return true; }
@@ -188,8 +194,8 @@ try {
   await expect(page.locator('#settings-dialog')).toBeHidden();
   await expect.poll(albumFrames).toEqual(albums.map(() => 1));
   assert.deepEqual(errors, []);
-  await writeFile('artifacts/layout-check.json', JSON.stringify({ date: new Date().toISOString(), status: 'passed', wide, narrow, spacious, compact, sliders: [1, 10], collectionRatio, albumCollectionRatio, albums: albums.map(({ title }) => title) }, null, 2));
-  console.log('Collection layout passed: aligned rows, mean media ratio, stable filtering/slideshows, responsive columns, 1–10 sliders, settings saved on close, missing dimensions, and persisted square frames.');
+  await writeFile('artifacts/layout-check.json', JSON.stringify({ date: new Date().toISOString(), status: 'passed', wide, narrow, spacious, compact, sliders: { preview: [1, 40], slideshow: [1, 10] }, collectionRatio, albumCollectionRatio, albums: albums.map(({ title }) => title) }, null, 2));
+  console.log('Collection layout passed: aligned rows, mean media ratio, stable filtering/slideshows, responsive columns, 40 preview sizes and 1–10 second slideshows, settings saved on close, missing dimensions, and persisted square frames.');
 } catch (error) {
   if (page && !page.isClosed()) await page.screenshot({ path: 'artifacts/layout-failure.png', fullPage: true });
   throw error;

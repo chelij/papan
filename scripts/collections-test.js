@@ -73,7 +73,7 @@ try {
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   assert.equal((await manifest()).collection.name, 'saved references');
-  assert.equal((await manifest()).collection.settings.density, 10);
+  assert.equal((await manifest()).collection.settings.density, 20);
   assert.equal(JSON.parse(await readFile(path.join(destination, 'references.previous.papan'))).collection.name, 'references');
   const unchanged = await manifest();
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
@@ -94,7 +94,7 @@ try {
   await page.locator('[data-reopen-collection]').click();
   await expect(page.getByRole('tab', { name: 'saved references', exact: true })).toBeVisible();
   await expect(page.locator('.pin')).toHaveCount(2);
-  assert.equal((await snapshot()).collections[0].settings.density, 10);
+  assert.equal((await snapshot()).collections[0].settings.density, 20);
 
   // An unavailable destination cannot silently lose or partially commit edits.
   const moved = path.join(directory, 'unplugged');
