@@ -128,6 +128,7 @@ try {
   await expect(page.locator('#settings-dialog')).toBeHidden();
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 0.5);
   const savedSettings = (await page.evaluate(() => window.papan.library())).collections[0].settings;
+  await expect.poll(() => page.locator('#grid').evaluate(grid => Math.abs(grid.firstElementChild.getBoundingClientRect().width - (grid.clientWidth - 24)))).toBeLessThan(0.1);
   const canvas = await page.locator('#canvas').boundingBox();
   const previewWidth = await page.locator('.pin').first().evaluate(card => card.getBoundingClientRect().width);
   await page.mouse.move(canvas.x + 30, canvas.y + 30);
