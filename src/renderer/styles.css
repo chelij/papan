@@ -62,7 +62,7 @@ button, input, select { border-radius: 5px; }
 .empty-open:hover { color: #ddd; }
 #start-collecting { background: transparent; padding: 24px; color: #8f8f8f; font-size: 15px; font-weight: 400; letter-spacing: .1px; transition: color .2s; }
 #start-collecting:hover { color: #e6e6e6; }
-.grid { position: relative; padding: 12px; }
+.grid { position: relative; padding: 8px 12px 12px; }
 .pin { position: absolute; min-width: 0; overflow: hidden; background: #0e0e0e; border-radius: 3px; content-visibility: auto; contain-intrinsic-size: auto 270px; }
 .tile-main { width: 100%; height: 100%; display: block; padding: 0; text-align: left; background: transparent; overflow: hidden; border-radius: 0; }
 .tile-media, .tile-media img, .tile-media video { width: 100%; height: 100%; display: block; }

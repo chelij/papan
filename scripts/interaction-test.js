@@ -166,7 +166,7 @@ try {
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();
   await expect(page.locator('#grid')).toHaveAttribute('data-fit', 'cover');
-  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 10);
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 20);
 
   // Invalid settings remain editable; Enter and Escape both save valid edits.
   await page.getByRole('button', { name: 'Collection settings', exact: true }).click();
@@ -197,7 +197,7 @@ try {
   await launch();
   await expect.poll(pinOrder).toEqual(expected);
   await expect.poll(() => page.getByRole('tab').allTextContents()).toEqual(['inspiration', 'ideas', 'saved offline']);
-  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 9);
+  assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.density, 19.5);
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].settings.fit, 'contain');
   await page.screenshot({ path: 'artifacts/toolbar-and-dragging.png' });
   for (const width of [1200, 781, 560]) {

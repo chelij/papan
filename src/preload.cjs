@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('papan', {
   clearCollectionHistory: invoke('clear-collection-history'),
   deleteCollection: invoke('delete-collection'), deletePin: invoke('delete-pin'), reorder: invoke('reorder'),
   openSource: invoke('open-source'), openFolder: invoke('open-folder'), tools: invoke('tools'),
+  onWindowVisibility: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('papan:window-visibility', listener);
+    return () => ipcRenderer.removeListener('papan:window-visibility', listener);
+  },
   onProgress: callback => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('papan:progress', listener);

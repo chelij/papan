@@ -29,10 +29,11 @@ async function fixture() {
 test('collection files save only the list/settings and reopen references without copying or moving media', async () => {
   const f = await fixture();
   try {
+    f.collection.settings.density = 2.5;
     f.collection.destinationRevision = await saveCollectionFile(f.root, f.snapshot, f.collection);
     const first = await readFile(f.file, 'utf8'), saved = JSON.parse(first);
     assert.equal(saved.pins.length, 1);
-    assert.equal(saved.collection.settings.density, 5);
+    assert.equal(saved.collection.settings.density, 2.5);
     assert.equal(saved.collection.destination, undefined);
     assert.deepEqual(await readdir(f.destination), ['places.papan'], 'no media copied into destination');
     assert.equal(saved.pins[0].items[0].previewPath, path.join(f.root, 'media', f.pin.items[0].previewFile));
@@ -45,6 +46,7 @@ test('collection files save only the list/settings and reopen references without
     const loaded = await readCollectionFile(f.file, { collections: [], pins: [] });
     assert.equal(loaded.collection.id, f.collection.id);
     assert.equal(loaded.collection.closed, false);
+    assert.equal(loaded.collection.settings.density, 2.5, 'intermediate zoom levels survive saved-list reopening');
     assert.equal(loaded.pins[0].items[1].text, 'A saved caption');
     assert.equal(mediaLocation('/a/different/library', loaded.pins[0].items[0], true), path.join(f.root, 'media', f.pin.items[0].localFile));
     assert.equal(await readFile(mediaLocation(f.root, loaded.pins[0].items[0], true), 'utf8'), 'original bytes');

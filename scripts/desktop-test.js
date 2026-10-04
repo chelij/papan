@@ -125,7 +125,7 @@ try {
   await page.waitForFunction(time => { const video = document.querySelector('.tile-media video'); return video && !video.paused && video.currentTime !== time; }, previewTime);
   await page.getByLabel('autoplay & slideshows').uncheck();
   await page.getByRole('slider', { name: 'preview size', exact: true }).press('End');
-  for (let step = 0; step < 3; step++) await page.getByRole('slider', { name: 'preview size', exact: true }).press('ArrowLeft');
+  for (let step = 0; step < 7; step++) await page.getByRole('slider', { name: 'preview size', exact: true }).press('ArrowLeft');
   await page.screenshot({ path: 'artifacts/settings.png' });
   await page.getByRole('button', { name: 'Close collection settings', exact: true }).click();
   await expect(page.locator('#settings-dialog')).toBeHidden();

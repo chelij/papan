@@ -65,7 +65,7 @@ try {
   await tab('Storage').click(); await page.locator('#collection-mode').selectOption('offline'); await tab('Privacy').click();
   assert.equal(calls.length, 0, 'switching sections does not save early');
   await page.locator('[data-close="settings-dialog"]').click(); await expect(dialog).toBeHidden();
-  assert.equal(collection.name, 'saved design'); assert.equal(collection.settings.density, 10); assert.equal(collection.settings.mode, 'offline');
+  assert.equal(collection.name, 'saved design'); assert.equal(collection.settings.density, 20); assert.equal(collection.settings.mode, 'offline');
   checks.push('keyboard navigation, stable scrollbar width, live drafts, and autosave across sections');
   await page.locator('#collection-settings').click(); await page.locator('#collection-name').fill(''); await tab('Storage').click();
   await page.locator('[data-close="settings-dialog"]').click(); await expect(dialog).toBeVisible();
@@ -82,7 +82,7 @@ try {
   assert.equal((await metrics()).height, original.height); assert.equal(collection.name, 'outside close');
   await tab('General').click(); await expect(page.locator('#collection-name')).toHaveValue('unsaved draft'); await page.locator('#discard-settings').click(); await expect(dialog).toBeHidden();
   checks.push('outside dismissal saves; failed saves retain drafts and keep the panel stable');
-  await page.locator('.tile-main').first().click(); await page.locator('#edit-pin').click();
+  await page.locator('.pin-detail').first().click(); await page.locator('#edit-pin').click();
   await page.locator('#edit-collection').selectOption(''); await expect(tab('Privacy')).toBeHidden();
   await page.locator('#collection-name').fill('new offline board'); await tab('Storage').click(); await page.locator('#collection-mode').selectOption('offline');
   await page.locator('#create-collection').click(); await expect(dialog).toBeHidden();

@@ -12,7 +12,7 @@ export function collectionSettings(input = {}) {
   // Keep these mappings while libraries with the earlier column settings are supported.
   if (input.density === undefined && input.columns !== undefined) settings.density = input.columns;
   if (input.density === undefined && input.columns === undefined && input.tileSize !== undefined) settings.density = { small: 4, medium: 3, large: 2 }[input.tileSize];
-  if (!['online', 'offline'].includes(settings.mode) || !Number.isInteger(settings.density) || settings.density < 1 || settings.density > 10 ||
+  if (!['online', 'offline'].includes(settings.mode) || !Number.isFinite(settings.density) || !Number.isInteger(settings.density * 2) || settings.density < 0.5 || settings.density > 20 ||
       !['source', 'saved'].includes(settings.openAction) || !['cover', 'contain'].includes(settings.fit) || typeof settings.motion !== 'boolean' ||
       !Number.isInteger(settings.slideshowSeconds) || settings.slideshowSeconds < 1 || settings.slideshowSeconds > 10) {
     throw new Error('Invalid collection settings.');
