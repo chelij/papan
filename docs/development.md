@@ -1,5 +1,7 @@
 # Development and distribution
 
+For component ownership, compatibility, cross-repository issues, and release upkeep, see the [ecosystem overview](ecosystem.md). The ComfyUI extension is developed, checked, and released in [chelij/comfyui-papan](https://github.com/chelij/comfyui-papan#development-and-releases).
+
 ## Setup
 
 Use Node.js 24.15+ and Python 3.11+. Run `npm ci`, `npm run setup`, then `npm start`. Setup creates `.venv/` and installs pinned extractors, Electron, and a development FFmpeg binary.
