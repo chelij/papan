@@ -29,7 +29,7 @@ const outputs = await packager({ dir: '.', name: 'Papan', out: 'dist', overwrite
   executableName: 'papan', appBundleId: 'id.papan.desktop', appCategoryType: 'public.app-category.lifestyle',
   appCopyright: 'Copyright © 2026 Cheliyono Jenardi',
   icon: `assets/icon.${process.platform === 'darwin' ? 'icns' : process.platform === 'win32' ? 'ico' : 'png'}`,
-  ignore: [/^\/(test|scripts|docs|artifacts|dist|build|\.venv|\.github|worker)(\/|$)/, /^\/\.git/, /\.log$/,
+  ignore: [/^\/(test|scripts|docs|artifacts|dist|build|\.venv|\.github|worker|extensions)(\/|$)/, /^\/\.git/, /^\/AGENTS\.md$/, /\.log$/,
     /^\/node_modules\/ffmpeg-static\/ffmpeg(\.exe|\.README|\.LICENSE)?$/],
 });
 const python = path.join('.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');

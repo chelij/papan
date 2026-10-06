@@ -6,7 +6,7 @@
 
 Good references disappear into browser tabs and download folders. Papan keeps images, videos, and readable articles together in a quiet desktop canvas. Paste a link, choose what to keep, and collect it locally. No account or cloud service required.
 
-[Download Papan](https://github.com/chelij/papan/releases/latest) · [Android companion](https://github.com/chelij/papan-android) · [Download APK](https://github.com/chelij/papan-android/releases/latest) · [User guide](docs/usage.md) · [Changelog](CHANGELOG.md) · [Architecture](docs/architecture.md)
+[Download Papan](https://github.com/chelij/papan/releases/latest) · [Android companion](https://github.com/chelij/papan-android) · [Download APK](https://github.com/chelij/papan-android/releases/latest) · [User guide](docs/usage.md) · [Changelog](CHANGELOG.md) · [Architecture](docs/architecture.md) · [Ecosystem and compatibility](docs/ecosystem.md)
 
 ![Papan showing an adaptive board of paintings, with collection tabs and a compact toolbar](docs/demo/board.png)
 
