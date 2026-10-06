@@ -10,6 +10,8 @@ Slideshow checks hold video responses through multiple timer ticks, sample decod
 
 These checks stub preload/IPC and do not exercise native wheel input or cross-platform window focus. The native-window focus event is included in the production visibility publisher; exact long-idle playback latency is not established by the headless suites. GitHub's native build workflows remain the cross-platform check for the published commit.
 
+The [board refresh fix run](https://github.com/chelij/papan/actions/runs/37505303426) passed at commit `926dfc3`: native source and packaged-app workflows on Linux x64, Windows x64, and macOS ARM64, plus all nine renderer suites on Linux.
+
 ## Source checks
 
 | Check | What it proves |
