@@ -2,6 +2,14 @@
 
 The v0.2.0 local preflight on 30 September 2026 passed syntax checks, all 23 unit test groups, all seven renderer suites, and all five native source desktop suites. Native local windows used a private Xvfb display, verified before interaction. Tests use disposable profiles and local fixture servers; the personal library is never a test fixture. The pinned extraction helper uses gallery-dl 1.32.14, yt-dlp 2026.08.19, and Instaloader 4.15.3.
 
+## Board refresh fixes checked on 7 October 2026
+
+Syntax checks, all 31 unit tests, and the scroll, slideshow, visibility, tabs, history, settings, and protection suites passed locally in isolated headless Chromium. The regressions reproduce older refresh replies removing newer pins, an earlier refresh undoing a saved reorder, delayed saves overriding a later board selection, and background tab/history actions discarding loaded rows. The fixed renderer retains existing previews and loaded rows and preserves the scrolling destination when new pin proportions arrive.
+
+Slideshow checks hold video responses through multiple timer ticks, sample decoded-frame availability, cancel pending loads when switching boards, and verify recovery after failed images and videos while keeping the previous frame visible. Visibility checks verify that a new save retains the same video element, playback position, and explicit pause.
+
+These checks stub preload/IPC and do not exercise native wheel input or cross-platform window focus. The native-window focus event is included in the production visibility publisher; exact long-idle playback latency is not established by the headless suites. GitHub's native build workflows remain the cross-platform check for the published commit.
+
 ## Source checks
 
 | Check | What it proves |
@@ -24,11 +32,11 @@ All seven renderer suites passed in isolated headless Chromium during local pref
 | --- | --- |
 | `test:previews` | Saved-item selection, both range handles, decoded boundary frames, independent video ranges, clip looping, complete viewer media, cancellation, validation, and queued preview metadata |
 | `test:playback` | Production byte responses, forward/backward seeking, timeline clicks, saved-video playback after the source server stops, and stable settings bounds with classic scrollbars |
-| `test:visibility` | Decoded-video position retention, viewport edges, header/footer coverage, pauses, reduced motion, simulated window/document visibility, zooming, and clipped viewer/editor playback |
-| `test:slideshow` | No blank frames after the first image; delayed/broken-image handling, slide order and display intervals, collection switches during loading, and video-to-image transitions |
+| `test:visibility` | Decoded-video and pause retention through scrolling and new saves, viewport edges, header/footer coverage, reduced motion, simulated window/document visibility, zooming, and clipped viewer/editor playback |
+| `test:slideshow` | Decoded frames retained through delayed/failed image and video transitions, slide order and intervals, preview-start seeking, recovery, and collection switches during loading |
 | `test:protection` | Password setup/change/removal, unlock popups and cancellation, locked search/media, restart locking, encrypted video seeking, successful queue cleanup, and failed-task access |
 | `test:settings` | Compact sections, keyboard navigation, stable bounds, drafts and autosave, hidden-field validation, save failures, creation, and short-window scrolling |
-| `test:scroll` | Adaptive wheel steps and limits at 560–3840px, top pin retained across zoom, preceding rows fully hidden, smooth wheel accumulation, animation cancellation, row boundaries, resizing, preview-size controls, search, lazy loading, and the last row reaching the top |
+| `test:scroll` | Saves and late dimensions retain previews, loaded rows, and pending scrolling; stale refresh/reorder and board-selection races; background tabs/history and tab focus; adaptive wheel steps and limits at 560–3840px; zoom, row boundaries, resizing, search, lazy loading, and final-row alignment |
 | `test:tabs` | Temporary tabs, shortcuts, ordering, close/reopen, narrow layouts, password cancellation, unchanged metadata after unused/cancelled tabs, and exactly one collection on the first confirmed save |
 | `test:history` | Clearing and failed saves, restart persistence, All collections access, ordinary/encrypted reopening, and new recent entries after closing; collection files, media, and removal history remain intact |
 

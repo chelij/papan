@@ -547,7 +547,7 @@ async function createWindow() {
       window.webContents.send('papan:window-visibility', window.isVisible() && !window.isMinimized());
     }
   };
-  for (const event of ['show', 'hide', 'minimize', 'restore']) window.on(event, publishVisibility);
+  for (const event of ['show', 'hide', 'minimize', 'restore', 'focus']) window.on(event, publishVisibility);
   window.webContents.on('did-finish-load', publishVisibility);
   window.on('closed', () => { for (const controller of jobs.values()) controller.abort(); window = null; });
   window.once('ready-to-show', () => window.show());

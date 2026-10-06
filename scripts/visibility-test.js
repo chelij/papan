@@ -29,7 +29,9 @@ try {
   page.setDefaultTimeout(8000);
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(state => {
-    window.papan = { library: async () => state, downloads: async () => [], onDownloads() {}, onProgress() {}, tools: async () => ({}),
+    window.testLibrary = state;
+    window.papan = { library: async () => structuredClone(state), downloads: async () => [],
+      onDownloads: callback => { window.testDownloads = callback; }, onProgress() {}, tools: async () => ({}),
       onWindowVisibility: callback => { window.testWindowVisibility = callback; },
       setPreviewSize: async ({ density }) => { state.collections[0].settings.density = density; } };
     // Renderer-level hidden-document check; native Electron hiding is checked separately.
@@ -111,6 +113,18 @@ try {
   assert.equal(await video.evaluate(v => v.paused), true);
   assert.ok(Math.abs(await video.evaluate(v => v.currentTime) - manualTime) < .05);
   checks.push('an explicit pause survives timer ticks, visibility changes and reduced-motion preference changes');
+  await page.evaluate(() => {
+    const pin = structuredClone(window.testLibrary.pins[0]);
+    Object.assign(pin, { id: 'new-video', title: 'New video', sourceUrl: 'https://example.com/new-video' });
+    window.testLibrary.pins.push(pin);
+    window.testDownloads([{ id: 'video-save', title: pin.title, state: 'completed' }]);
+  });
+  await expect(page.locator('.pin')).toHaveCount(21);
+  assert.equal(await original.evaluate(v => v === document.querySelector('.pin video')), true, 'saving a new pin retains the existing video element');
+  await page.waitForTimeout(500);
+  assert.equal(await video.evaluate(v => v.paused), true, 'saving a pin preserves an explicit pause');
+  assert.ok(Math.abs(await video.evaluate(v => v.currentTime) - manualTime) < .05, 'saving a pin preserves video position');
+  checks.push('new saves retain the same decoded video, playback position, and explicit pause');
   await video.evaluate(v => v.play());
   await expect.poll(() => video.evaluate(v => !v.paused)).toBe(true);
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Changes since [v0.2.2](https://github.com/chelij/papan/releases/tag/v0.2.2).
+
+### Fixed
+
+- Keep existing board previews, video positions, measured dimensions, and loaded rows when new pins arrive. Preserve partial scroll positions and smooth wheel scrolling while new media proportions are applied after scrolling settles.
+- Ignore older library refresh replies after newer data or a saved reorder arrives. Keep the user's current board when an earlier save finishes, while honoring pending foreground requests to open a collection.
+- Retain the active board when closing an unused background tab or clearing recent history. Keep unchanged collection tabs and their keyboard focus during background refreshes.
+- Keep the last decoded frame visible while a slideshow video loads and seeks to its preview start. Slow or failed images and videos preserve the previous frame, advance correctly, and cancel safely when switching boards.
+- Publish native window visibility on focus so visible video previews can promptly reevaluate playback after returning to the app.
+
+### Checks
+
+- Cover saves before and during smooth scrolling in both directions, loaded-row retention, late dimensions, overlapping refresh replies, saved reorder protection, foreground board choices, and unchanged tab focus.
+- Sample slideshow frames through delayed and failed media transitions, and verify that saves retain the same decoded video and explicit pause state.
+
 ## 0.2.2 — 2026-10-04
 
 Changes since [v0.2.1](https://github.com/chelij/papan/releases/tag/v0.2.1).

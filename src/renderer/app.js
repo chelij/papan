@@ -9,6 +9,8 @@ let temporaryTabs = [], tabOrder = [];
 let selected = new Set(), coverId = null, addRequest = null, settingsRequest = null, settingsOriginal = null;
 let creatingCollection = false, shown = 0, filtered = [], viewerPin = null, viewerIndex = 0;
 let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0, gridRowHeight = 0, wheelScrollTarget = null, layoutAnchor = null;
+let refreshAnchor = null;
+let libraryRequest = 0, appliedLibraryRequest = 0, collectionChoice = 0;
 let dragState = null, dragFrame = 0, reorderPending = false;
 let pinPreview = null;
 let layoutPreview = null;
@@ -40,11 +42,18 @@ function toast(message, removalId = null) {
 function errorAt(id, error) { $(id).textContent = error.message || String(error); }
 
 async function refresh(preferred, replacementTab = null) {
-  library = await api.library();
+  const request = ++libraryRequest, choice = collectionChoice;
+  const snapshot = await api.library();
+  // A late reply may finish a foreground action, but must not restore older pins or override a newer choice.
+  if (request > appliedLibraryRequest) { library = snapshot; appliedLibraryRequest = request; }
+  else if (!preferred || choice !== collectionChoice) return;
+  if (choice !== collectionChoice) preferred = undefined;
+  const previousCollection = collectionId;
   const open = openCollections(), unlocked = open.filter(item => !item.locked);
   tabOrder = open.map(item => item.id);
   collectionId = [preferred, collectionId, unlocked[0]?.id].find(id => unlocked.some(item => item.id === id)) || null;
-  render();
+  if (preferred && collectionId === preferred) collectionChoice++;
+  render({ preserveBoard: collectionId === previousCollection });
   for (const pin of library.pins) {
     if (!api.repairPreviews || previewRepairs.has(pin.id) || !pin.items.some(item => item.kind === 'video' && item.previewVersion !== 1 && (item.previewFile || item.previewPath || item.encrypted))) continue;
     previewRepairs.add(pin.id);
@@ -54,18 +63,26 @@ async function refresh(preferred, replacementTab = null) {
   if (open.some(item => item.id === preferred && item.locked)) openPassword('unlock', preferred, replacementTab);
 }
 
-function render() {
-  wheelScrollTarget = layoutAnchor = null;
-  $('canvas').style.paddingBottom = '0px';
+function render({ preserveBoard = false } = {}) {
+  const limit = preserveBoard ? shown >= filtered.length ? Infinity : Math.max(48, shown) : 48;
+  if (preserveBoard) {
+    const position = wheelScrollTarget ?? scrollY;
+    const card = [...$('grid').children].find(card => card.getBoundingClientRect().bottom > $('toolbar').getBoundingClientRect().bottom + 8 + position - scrollY);
+    refreshAnchor = card ? { id: card.dataset.pinId, top: card.getBoundingClientRect().top + scrollY - position, scroll: position } : null;
+  } else {
+    wheelScrollTarget = layoutAnchor = refreshAnchor = null;
+    $('canvas').style.paddingBottom = '0px';
+  }
   $('toolbar').hidden = !library.collections.length && !temporaryTabs.length;
   document.body.classList.toggle('has-collections', !$('toolbar').hidden);
   const open = openCollections(), tabStop = collectionId || open[0]?.id;
-  $('collections').innerHTML = open.map(item => `<div class="collection-entry" role="presentation" data-collection-id="${escapeHTML(item.id)}"><button type="button" class="collection-tab" role="tab" draggable="true" aria-describedby="reorder-help" id="collection-tab-${escapeHTML(item.id)}" data-collection-id="${escapeHTML(item.id)}" aria-selected="${item.id === collectionId}" aria-controls="canvas" tabindex="${item.id === tabStop ? 0 : -1}" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}${item.locked ? ' <span aria-label="locked">· locked</span>' : ''}</button><button type="button" class="collection-close" data-close-collection="${escapeHTML(item.id)}" aria-label="Close ${escapeHTML(item.name)}" title="Close collection" tabindex="${item.id === tabStop ? 0 : -1}">×</button></div>`).join('');
+  const tabs = open.map(item => `<div class="collection-entry" role="presentation" data-collection-id="${escapeHTML(item.id)}"><button type="button" class="collection-tab" role="tab" draggable="true" aria-describedby="reorder-help" id="collection-tab-${escapeHTML(item.id)}" data-collection-id="${escapeHTML(item.id)}" aria-selected="${item.id === collectionId}" aria-controls="canvas" tabindex="${item.id === tabStop ? 0 : -1}" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}${item.locked ? ' <span aria-label="locked">· locked</span>' : ''}</button><button type="button" class="collection-close" data-close-collection="${escapeHTML(item.id)}" aria-label="Close ${escapeHTML(item.name)}" title="Close collection" tabindex="${item.id === tabStop ? 0 : -1}">×</button></div>`).join('');
+  if ($('collections')._markup !== tabs) { $('collections').innerHTML = tabs; $('collections')._markup = tabs; }
   if (collectionId) {
     $('canvas').setAttribute('role', 'tabpanel');
     $('canvas').setAttribute('aria-labelledby', `collection-tab-${collectionId}`);
     $('canvas').tabIndex = 0;
-    $('collections').querySelector('[aria-selected="true"]')?.closest('.collection-entry').scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (!preserveBoard) $('collections').querySelector('[aria-selected="true"]')?.closest('.collection-entry').scrollIntoView({ block: 'nearest', inline: 'nearest' });
   } else {
     for (const name of ['role', 'aria-labelledby', 'tabindex']) $('canvas').removeAttribute(name);
   }
@@ -99,12 +116,16 @@ function render() {
   $('start-collecting').disabled = hasFilter;
   $('start-collecting').setAttribute('aria-label', $('start-collecting').textContent);
   $('grid').hidden = !filtered.length;
-  for (const card of $('grid').children) { pause(card); card._cancelSizing?.(); card._loading?.removeAttribute('src'); }
-  visible.clear();
-  observer.disconnect();
-  $('grid').replaceChildren();
+  const pins = new Map(filtered.slice(0, limit).map(pin => [pin.id, pin])), retained = new Map();
+  for (const card of [...$('grid').children]) {
+    if (preserveBoard && pins.has(card.dataset.pinId) && card._signature === JSON.stringify(pins.get(card.dataset.pinId))) retained.set(card.dataset.pinId, card);
+    else {
+      pause(card); card._cancelSizing?.(); card._loading?.removeAttribute('src');
+      visible.delete(card); observer.unobserve(card); card.remove();
+    }
+  }
   shown = 0;
-  appendPins();
+  appendPins(limit, retained);
   if ($('collections-dialog').open) renderCollectionBrowser();
 }
 
@@ -145,14 +166,25 @@ async function prepareAlbum(card) {
   if (visible.has(card)) showSlide(card);
 }
 
-function appendPins() {
-  const next = filtered.slice(shown, shown + 48);
-  for (const pin of next) {
+function appendPins(limit = 48, retained = new Map()) {
+  const next = filtered.slice(shown, shown + limit);
+  for (const [index, pin] of next.entries()) {
+    const existing = retained.get(pin.id), following = $('grid').children[shown + index] || null;
+    if (existing) {
+      // Retain measured dimensions, in-flight decoding, and slideshow/video state.
+      pin.items = existing._pin.items;
+      existing._pin = pin;
+      existing.draggable = $('grid').dataset.scope !== 'all';
+      existing.querySelector('.tile-collection').textContent = $('grid').dataset.scope === 'all' ? library.collections.find(item => item.id === pin.collectionId)?.name || '' : '';
+      if (existing !== following) $('grid').insertBefore(existing, following);
+      continue;
+    }
     const card = document.createElement('article');
     card.className = 'pin';
     card.draggable = $('grid').dataset.scope !== 'all';
     card.setAttribute('role', 'listitem');
     card.dataset.pinId = pin.id;
+    card._signature = JSON.stringify(pin);
     card._pin = pin;
     const visual = pin.items.filter(item => item.kind !== 'text');
     card._slides = pin.previews ? pin.previews.map(preview => pin.items.find(item => item.id === preview.itemId)) : visual.length ? visual : pin.items;
@@ -165,7 +197,7 @@ function appendPins() {
     card.querySelector('.tile-main').onclick = () => openViewer(pin);
     card.querySelector('.tile-main').setAttribute('aria-describedby', 'reorder-help');
     card.querySelector('.pin-detail').onclick = () => openViewer(pin);
-    $('grid').append(card);
+    $('grid').insertBefore(card, following);
     observer.observe(card);
   }
   shown += next.length;
@@ -198,10 +230,12 @@ function layoutPins() {
   // Default density aims for 360px columns shared by every row.
   const columns = Math.max(1, Math.round((width + gap) / (1080 / settings().density + gap)));
   const tileWidth = (width - gap * (columns - 1)) / columns;
-  const height = tileWidth / ratio;
+  // Apply newly measured proportions after scrolling settles so saving cannot jump past the animation.
+  const height = wheelScrollTarget !== null && Math.abs(parseFloat(cards[0]?.style.width) - tileWidth) <= 0.01 ? parseFloat(cards[0].style.height) : tileWidth / ratio;
   const resized = cards.length && parseFloat(cards[0].style.width) > 0 && (Math.abs(parseFloat(cards[0].style.width) - tileWidth) > 0.01 || Math.abs(parseFloat(cards[0].style.height) - height) > 0.01);
-  if (resized) {
-    layoutAnchor ||= cards.find(card => card.getBoundingClientRect().bottom > $('toolbar').getBoundingClientRect().bottom + gap)?.dataset.pinId;
+  if (resized && !refreshAnchor) {
+    // Late media dimensions retain the pending row; column changes retain the visible pin.
+    layoutAnchor ||= cards.find(card => card.getBoundingClientRect().bottom > $('toolbar').getBoundingClientRect().bottom + gap + (Math.abs(parseFloat(cards[0].style.width) - tileWidth) <= 0.01 ? (wheelScrollTarget ?? scrollY) - scrollY : 0))?.dataset.pinId;
     wheelScrollTarget = null;
     window.scrollTo({ top: scrollY, behavior: 'instant' });
   }
@@ -217,7 +251,15 @@ function layoutPins() {
   grid.style.height = `${cards.length ? top - gap + padding : 0}px`;
   // Keep room for the last row's scroll target to round upward by one pixel.
   $('canvas').style.paddingBottom = `${cards.length ? Math.max(0, innerHeight - $('toolbar').offsetHeight - $('board-footer').offsetHeight - height - gap - padding + 1) : 0}px`;
-  if (resized && layoutAnchor) {
+  if (refreshAnchor) {
+    const anchor = cards.find(card => card.dataset.pinId === refreshAnchor.id);
+    const top = anchor ? Math.max(0, scrollY + anchor.getBoundingClientRect().top - refreshAnchor.top) : refreshAnchor.scroll;
+    if (Math.abs(top - (wheelScrollTarget ?? scrollY)) > 1) {
+      wheelScrollTarget = layoutAnchor = null;
+      window.scrollTo({ top, behavior: 'instant' });
+    }
+    refreshAnchor = null;
+  } else if (resized && layoutAnchor) {
     const anchor = cards.find(card => card.dataset.pinId === layoutAnchor);
     if (anchor) window.scrollTo({ top: Math.ceil(Math.max(0, scrollY + grid.getBoundingClientRect().top + parseFloat(anchor.style.top) - $('toolbar').getBoundingClientRect().bottom - gap)), behavior: 'instant' });
   }
@@ -247,6 +289,7 @@ async function showSlide(card) {
     target.innerHTML = `<div class="text-tile"><span class="text-mark">Aa</span><h2>${escapeHTML(card._pin.title)}</h2><p>${escapeHTML(item.text)}</p></div>`;
   } else if (item.kind === 'video') {
     const video = document.createElement('video');
+    video._item = item;
     const preview = card._pin.previews?.find(preview => preview.itemId === item.id);
     video.src = source || '';
     video.muted = true;
@@ -255,7 +298,7 @@ async function showSlide(card) {
     video.autoplay = false;
     video.loop = card._slides.length === 1 && !preview;
     video.playsInline = true;
-    video.preload = 'metadata';
+    video.preload = target.childElementCount ? 'auto' : 'metadata';
     video.setAttribute('aria-label', card._pin.title);
     let start = preview?.start || 0;
     video.addEventListener('loadedmetadata', () => {
@@ -265,7 +308,7 @@ async function showSlide(card) {
     });
     if (preview) {
       video.addEventListener('timeupdate', () => {
-        if (card._loading || !video.isConnected || preview.end == null || video.currentTime < preview.end || video.seeking) return;
+        if (card._loading || !video.isConnected || card._slides[card._index] !== item || preview.end == null || video.currentTime < preview.end || video.seeking) return;
         if (card._slides.length > 1) {
           video.pause();
           if (visible.has(card) && motion()) { card._index = (card._index + 1) % card._slides.length; showSlide(card); }
@@ -277,8 +320,21 @@ async function showSlide(card) {
         syncVideoPlayback(video);
       });
     }
+    if (target.childElementCount) {
+      // Keep the previous frame through loading and the preview-start seek.
+      card._loading = video;
+      const decoded = await new Promise(resolve => {
+        video.onloadeddata = video.onseeked = () => { if (video.readyState >= 2 && !video.seeking) resolve(true); };
+        video.onerror = video.onabort = video.onemptied = () => resolve(false);
+      });
+      video.onloadeddata = video.onseeked = video.onerror = video.onabort = video.onemptied = null;
+      if (card._loading !== video) return;
+      card._loading = null;
+      if (!card.isConnected) return;
+      if (!decoded) { card._last = Date.now(); card._loaded = true; return; }
+    }
     target.replaceChildren(video);
-    video.addEventListener('error', () => mediaError(target, 'video preview unavailable'));
+    video.addEventListener('error', () => { if (target.contains(video)) mediaError(target, 'video preview unavailable'); });
     watchVideo(video, { autoplay: true, board: true });
   } else {
     const img = document.createElement('img');
@@ -293,7 +349,7 @@ async function showSlide(card) {
     card._loading = null;
     if (!card.isConnected) return;
     if (!decoded) {
-      if (!target.querySelector('img')) mediaError(target, 'image unavailable');
+      if (!target.childElementCount) mediaError(target, 'image unavailable');
       card._last = Date.now();
       card._loaded = true;
       return;
@@ -432,7 +488,7 @@ setInterval(() => {
   for (const card of visible) {
     if (card._sizing || card._loading) continue;
     const video = card.querySelector('video');
-    if (card._slides.length > 1 && (video ? video.ended : now - card._last >= settings().slideshowSeconds * 1000)) {
+    if (card._slides.length > 1 && (video && video._item === card._slides[card._index] ? video.ended : now - card._last >= settings().slideshowSeconds * 1000)) {
       card._index = (card._index + 1) % card._slides.length;
       showSlide(card);
     }
@@ -770,7 +826,7 @@ async function saveCollectionFile(chooseDestination = false) {
   try {
     const saved = await api.saveCollection({ id, chooseDestination });
     if (!saved) return;
-    await refresh(saved.id);
+    await refresh(collectionId === id ? saved.id : undefined);
     $('collection-destination').textContent = saved.destination;
     $('choose-destination').textContent = 'save as…';
     toast(saved.protected ? 'encrypted collection and media saved' : 'Collection list saved · media stays in its current location');
@@ -786,19 +842,20 @@ async function saveCollectionFile(chooseDestination = false) {
 async function closeCollection(id) {
   if (collectionFileBusy || reorderPending) return;
   try {
-    const open = openCollections(), index = open.findIndex(item => item.id === id);
-    const next = id === collectionId ? [...open.slice(index + 1), ...open.slice(0, index).reverse()].find(item => !item.locked)?.id : collectionId;
+    const open = openCollections(), index = open.findIndex(item => item.id === id), active = id === collectionId;
+    if (active) collectionChoice++;
+    const next = active ? [...open.slice(index + 1), ...open.slice(0, index).reverse()].find(item => !item.locked)?.id : collectionId;
     if (temporaryTabs.some(item => item.id === id)) {
       temporaryTabs = temporaryTabs.filter(item => item.id !== id);
       tabOrder = tabOrder.filter(item => item !== id);
-      if (id === collectionId) { collectionId = next || null; resetFilters(); }
-      render();
+      if (active) { collectionId = next || null; resetFilters(); }
+      render({ preserveBoard: !active });
       return;
     }
     await api.closeCollection(id);
     if (library.collections.find(item => item.id === id)?.protected) clearPrivateViews();
     if (id === collectionId) $('search').value = '';
-    await refresh(next);
+    await refresh(id === collectionId ? next : undefined);
     toast('Collection closed · reopen it from Open collection');
   } catch (error) { toastError(error); }
 }
@@ -871,7 +928,7 @@ $('clear-collection-history').onclick = async () => {
     await refresh();
     $('collection-file-status').textContent = 'History cleared. Your saved collections are still in all collections.';
   } catch (error) { $('collection-file-status').textContent = ''; errorAt('collection-file-error', error); }
-  finally { collectionFileBusy = false; render(); if ($('collections-dialog').open) $('collection-browser-scope').focus(); }
+  finally { collectionFileBusy = false; render({ preserveBoard: true }); if ($('collections-dialog').open) $('collection-browser-scope').focus(); }
 };
 $('closed-collections').onclick = event => { const button = event.target.closest('[data-reopen-collection]'); if (button) openCollectionFile(button.dataset.reopenCollection); };
 
@@ -888,6 +945,7 @@ async function reorderItem(kind, id, beforeId) {
       if (!moving.temporary) library = await api.reorder({ kind, id, beforeId: following?.id || null });
       tabOrder = tabs.map(item => item.id);
     } else library = await api.reorder({ kind, id, beforeId });
+    appliedLibraryRequest = ++libraryRequest;
     const container = $(kind === 'pin' ? 'grid' : 'collections');
     const focused = document.activeElement, scroll = container.scrollLeft;
     const nodes = new Map([...container.children].map(node => [kind === 'pin' ? node.dataset.pinId : node.dataset.collectionId, node]));
@@ -1062,7 +1120,7 @@ document.addEventListener('dragleave', event => {
     dragState.x = -1; dragState.y = -1; updateDrop();
   }
 });
-document.addEventListener('scrollend', () => { wheelScrollTarget = null; });
+document.addEventListener('scrollend', () => { wheelScrollTarget = null; scheduleLayout(); });
 document.addEventListener('pointerdown', () => { wheelScrollTarget = layoutAnchor = null; }, true);
 document.addEventListener('keydown', event => {
   wheelScrollTarget = null;
@@ -1120,6 +1178,7 @@ function switchCollection(id) {
   if (!target) return;
   if (target.locked) { openPassword('unlock', id); return; }
   if (id !== collectionId) {
+    collectionChoice++;
     collectionId = id;
     resetFilters();
     render();
@@ -1591,7 +1650,7 @@ function renderDownloads(tasks, initial = false) {
       if (task.state === 'completed') refresh().catch(toastError);
     }
   }
-  downloadStates = new Map(unfinished.map(task => [task.id, task.state]));
+  downloadStates = new Map(tasks.map(task => [task.id, task.state]));
 }
 $('review-downloads').onclick = () => { $('collections-dialog').close(); $('downloads-panel').showPopover(); };
 $('download-list').onclick = async event => {
