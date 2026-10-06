@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 — 2026-10-07
 
 Changes since [v0.2.2](https://github.com/chelij/papan/releases/tag/v0.2.2).
 
