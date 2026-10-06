@@ -17,6 +17,7 @@ Good references disappear into browser tabs and download folders. Papan keeps im
 - **Browse visually.** Responsive columns align every row. Preview frames use the average media proportions of the collection. Choose saved items for board previews and set separate start/end ranges for each video. All previews share a stable frame; visible videos play silently.
 - **Make it yours.** Rename pins, change covers, move them between collections, and add tags and personal notes. Drag pins onto collection tabs, create destinations while editing, and undo removals after restarting.
 - **Find it again.** Search titles, notes, tags, and saved text across unlocked collections, including closed tabs. Narrow results by media type, source, and tag.
+- **Use pins in ComfyUI.** The [Papan ComfyUI extension](https://github.com/chelij/comfyui-papan) opens board files and connects image/video references from one loader node.
 - **Keep collecting while files save.** A background queue shows progress, cancellation, failures, and retry. Successful tasks disappear automatically. Open temporary tabs with Ctrl/Cmd+T; collections are saved only when you add a link.
 - **Choose what stays on disk.** Cache smaller previews in online mode or download originals in offline mode. Pins open in Papan first, with their original page available from the viewer.
 - **Protect a collection.** Encrypt its contents and saved media with a password. Lock it from the toolbar; protected saves and portable exports stay encrypted.
