@@ -21,15 +21,38 @@ try {
   page.setDefaultTimeout(5000);
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(state => {
+    if (location.search === '?delayed-previews') for (const pin of state.pins.slice(0, 2)) {
+      delete pin.items[0].width; delete pin.items[0].height;
+      pin.items[0].url = `http://papan.test/late-preview-${pin.id}.svg`;
+    }
     window.wheelSaves = [];
+    window.testLibrary = state;
+    window.libraryReads = 0;
+    window.pendingLibraries = [];
     window.papan = {
-      library: async () => structuredClone(state), downloads: async () => [], onDownloads() {}, onProgress() {}, tools: async () => ({}),
+      library: async () => {
+        window.libraryReads++;
+        const snapshot = structuredClone(state);
+        return window.holdLibrary ? new Promise(resolve => window.pendingLibraries.push(() => resolve(snapshot))) : snapshot;
+      }, downloads: async () => [],
+      onDownloads: callback => { window.testDownloads = callback; }, onPhoneInbox: callback => { window.testPhoneInbox = callback; },
+      onProgress() {}, tools: async () => ({}),
       setPreviewSize: async input => { state.collections[0].settings.density = input.density; window.wheelSaves.push(input.density); },
       updateCollection: async input => { Object.assign(state.collections[0], { name: input.name, settings: input.settings }); return structuredClone(state.collections[0]); },
+      saveCollection: async ({ id }) => {
+        const saved = structuredClone(state.collections.find(collection => collection.id === id));
+        return window.holdSaveCollection ? new Promise(resolve => { window.releaseSaveCollection = () => resolve(saved); }) : saved;
+      },
+      openCollection: async () => structuredClone(state.collections.find(collection => collection.id === 'other-board')),
+      reorder: async ({ kind, id, beforeId }) => {
+        const items = state[kind === 'pin' ? 'pins' : 'collections'], [moving] = items.splice(items.findIndex(item => item.id === id), 1);
+        items.splice(beforeId === null ? items.length : items.findIndex(item => item.id === beforeId), 0, moving);
+        return structuredClone(state);
+      },
+      clearCollectionHistory: async () => { state.hiddenRecentCollections = state.collections.filter(collection => collection.closed).map(collection => collection.id); },
     };
   }, state);
-  await page.goto(pathToFileURL(path.resolve('src/renderer/index.html')).href);
-  await expect(page.locator('.pin')).toHaveCount(48);
+  const url = pathToFileURL(path.resolve('src/renderer/index.html')).href;
   const metrics = () => page.evaluate(() => {
     const cards = [...document.querySelectorAll('.pin')], grid = document.querySelector('#grid'), toolbar = document.querySelector('#toolbar').getBoundingClientRect();
     const tops = [...new Set(cards.map(card => parseFloat(card.style.top)))];
@@ -65,6 +88,251 @@ try {
     await frames();
   };
 
+  let releases, requests;
+  await page.route('http://papan.test/late-preview-*.svg', async route => {
+    const index = route.request().url().includes('pin-0') ? 0 : 1;
+    requests.add(index);
+    await releases[index].gate;
+    await route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="${index ? 200 : 800}"/>` });
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    releases = Array.from({ length: 2 }, () => {
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      return { gate, release };
+    });
+    requests = new Set();
+    await page.goto(`${url}?delayed-previews`);
+    await expect(page.locator('.pin')).toHaveCount(48);
+    await expect.poll(() => requests.size).toBe(2);
+    await expect.poll(async () => (await metrics()).pitch).toBeGreaterThan(0);
+    await page.mouse.move(30, 200); await page.mouse.wheel(0, 120);
+    await page.waitForFunction(() => scrollY > 0);
+    releases[0].release();
+    await expect(page.locator('[data-pin-id="pin-0"] img')).toHaveCount(1);
+    await aligned('pin-3');
+    await page.waitForTimeout(600); await aligned('pin-3');
+
+    if (attempt === 0) {
+      await page.evaluate(() => {
+        window.delayedCard = document.querySelector('[data-pin-id="pin-0"]');
+        window.delayedImage = window.delayedCard.querySelector('img');
+        window.pendingCard = document.querySelector('[data-pin-id="pin-1"]');
+        const other = structuredClone(window.testLibrary.collections[0]); other.id = 'background-board';
+        window.testLibrary.collections.push(other);
+        const pin = structuredClone(window.testLibrary.pins[0]); pin.id = 'background-pin'; pin.collectionId = other.id;
+        window.testLibrary.pins.push(pin);
+        window.testDownloads([{ id: 'background-save', title: 'Save to another board', state: 'completed' }]);
+      });
+      await expect(page.locator('.collection-tab')).toHaveCount(2);
+      await frames(); await aligned('pin-3');
+      assert.equal(await page.evaluate(() => window.delayedImage.isConnected && window.pendingCard === document.querySelector('[data-pin-id="pin-1"]')), true, 'a background save retains measured previews and pending decoding');
+      checks.push('saves to another collection retain measured dimensions and in-flight preview decoding');
+    }
+
+    const before = await metrics();
+    await page.mouse.wheel(0, 120); await page.mouse.wheel(0, 120); await page.mouse.wheel(0, 120);
+    await page.waitForFunction(top => scrollY > top, before.scroll);
+    releases[1].release();
+    await expect(page.locator('[data-pin-id="pin-1"] img')).toHaveCount(1);
+    await aligned('pin-12');
+    await page.waitForTimeout(600); await aligned('pin-12');
+  }
+  await page.unrouteAll({ behavior: 'wait' });
+  checks.push('late startup previews preserve the destination of the first wheel scroll and accumulated wheel input (3 attempts)');
+
+  await page.goto(url);
+  await expect(page.locator('.pin')).toHaveCount(48);
+  while (await page.locator('.pin').count() < state.pins.length) {
+    await page.evaluate(() => scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    await frames();
+  }
+  await rowScroll(35);
+  const livePosition = await metrics();
+  await page.evaluate(top => scrollTo({ top, behavior: 'instant' }), livePosition.scroll + livePosition.pitch * .3);
+  await frames();
+  const liveAnchor = (await metrics()).row;
+  const anchorCard = page.locator(`[data-pin-id="${liveAnchor}"]`);
+  await expect(anchorCard.locator('img')).toHaveCount(1);
+  await page.evaluate(id => {
+    window.retainedCard = document.querySelector(`[data-pin-id="${id}"]`);
+    window.retainedImage = window.retainedCard.querySelector('img');
+    window.retainedTop = window.retainedCard.getBoundingClientRect().top;
+    window.boardMutations = [];
+    new MutationObserver(records => window.boardMutations.push(...records.filter(record => [...record.removedNodes].some(node => node === window.retainedCard || node === window.retainedImage))))
+      .observe(document.querySelector('#grid'), { childList: true, subtree: true });
+    const pin = structuredClone(window.testLibrary.pins[0]);
+    Object.assign(pin, { id: 'downloaded-pin', title: 'New downloaded pin', sourceUrl: 'https://example.com/new' });
+    window.testLibrary.pins.push(pin);
+    window.testDownloads([{ id: 'save-1', title: pin.title, state: 'completed' }]);
+  }, liveAnchor);
+  await expect(page.locator('.pin')).toHaveCount(151);
+  await frames();
+  assert.equal(await page.evaluate(() => window.retainedCard.isConnected && window.retainedImage.isConnected), true, 'a completed download retains existing tiles and decoded previews');
+  assert.equal(await page.evaluate(() => window.boardMutations.length), 0, 'the visible tile and preview are never removed during the update');
+  assert.ok(await page.evaluate(() => Math.abs(window.retainedCard.getBoundingClientRect().top - window.retainedTop) <= 1), 'a download preserves a partial scroll position beyond the first lazy-loaded batch');
+  checks.push('new downloads keep existing tiles, decoded images, loaded batches, and partial scroll positions');
+
+  const reads = await page.evaluate(() => window.libraryReads);
+  await page.evaluate(() => window.testDownloads([{ id: 'save-1', title: 'New downloaded pin', state: 'completed' }, { id: 'save-2', title: 'Next save', state: 'running' }]));
+  await frames();
+  assert.equal(await page.evaluate(() => window.libraryReads), reads, 'later queue progress does not refresh an already completed download');
+  checks.push('completed downloads refresh once when later queue events arrive');
+
+  await page.evaluate(() => {
+    const pin = structuredClone(window.testLibrary.pins[0]);
+    Object.assign(pin, { id: 'phone-pin', title: 'New portrait from phone', sourceUrl: 'https://example.com/phone' });
+    pin.items[0].width = 400; pin.items[0].height = 800;
+    window.testLibrary.pins.push(pin);
+    window.testPhoneInbox({ running: false, devices: [], entries: [{ id: 'share-1', title: pin.title, state: 'saved' }] });
+  });
+  await expect(page.locator('.pin')).toHaveCount(152);
+  await frames();
+  assert.equal(await page.evaluate(() => window.retainedImage.isConnected), true, 'phone saves retain decoded previews');
+  assert.ok(await page.evaluate(() => Math.abs(window.retainedCard.getBoundingClientRect().top - window.retainedTop) <= 1), 'a phone save with a different aspect ratio preserves the visible tile offset');
+  checks.push('phone saves with different image proportions preserve the visible tile and its viewport offset');
+
+  for (const [attempt, [delay, direction]] of [[0, 1], [100, 1], [0, -1], [100, -1]].entries()) {
+    await rowScroll(35);
+    const before = await metrics();
+    await expect(page.locator(`[data-pin-id="${before.row}"] img`)).toHaveCount(1);
+    await page.evaluate(direction => {
+      window.scrollingCard = [...document.querySelectorAll('.pin')].find(card => card.getBoundingClientRect().bottom > document.querySelector('#toolbar').getBoundingClientRect().bottom + 8);
+      window.scrollingImage = window.scrollingCard.querySelector('img');
+      for (let step = 0; step < 3; step++) document.querySelector('#grid').dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 30, clientY: 200, deltaY: direction * 120 }));
+    }, direction);
+    if (delay) await page.waitForTimeout(delay);
+    await page.evaluate(attempt => {
+      const pin = structuredClone(window.testLibrary.pins[0]);
+      Object.assign(pin, { id: `scrolling-pin-${attempt}`, title: 'Saved while scrolling' });
+      pin.items[0].height = 800;
+      window.testLibrary.pins.push(pin);
+      window.testDownloads([{ id: `scrolling-save-${attempt}`, title: pin.title, state: 'completed' }]);
+    }, attempt);
+    await expect(page.locator('.pin')).toHaveCount(153 + attempt);
+    await frames();
+    assert.ok(((await metrics()).scroll - before.scroll) * direction < before.pitch * 2, 'saving different image proportions does not jump to the pending smooth-scroll destination');
+    assert.equal(await page.evaluate(() => window.scrollingCard.isConnected && window.scrollingImage.isConnected), true, 'a save during scrolling retains the visible tile and decoded image');
+    await page.mouse.move(30, 200); await page.mouse.wheel(0, direction * 120);
+    const destination = `pin-${(35 + direction * 4) * before.columns}`;
+    await expect.poll(async () => (await metrics()).pitch).toBeGreaterThan(before.pitch);
+    await aligned(destination);
+    await page.waitForTimeout(600); await aligned(destination);
+  }
+  checks.push('saves before and during smooth scrolling preserve the animation, decoded previews, and accumulated wheel destination in both directions');
+
+  // Background updates must not discard a newer snapshot or the user's current board.
+  await page.goto(url);
+  await expect(page.locator('.pin')).toHaveCount(48);
+  await page.evaluate(() => {
+    window.holdLibrary = true;
+    const pin = structuredClone(window.testLibrary.pins[0]); pin.id = 'first-concurrent-pin';
+    window.testLibrary.pins.push(pin);
+    window.testDownloads([{ id: 'first-concurrent-save', title: pin.title, state: 'completed' }]);
+    window.testLibrary.pins.push({ ...pin, id: 'second-concurrent-pin' });
+    window.testDownloads([{ id: 'second-concurrent-save', title: pin.title, state: 'completed' }]);
+  });
+  await expect.poll(() => page.evaluate(() => window.pendingLibraries.length)).toBe(2);
+  await page.evaluate(() => window.pendingLibraries[1]());
+  await expect(page.locator('#end-note')).toContainText('152 pins');
+  await page.evaluate(() => { window.pendingLibraries[0](); window.holdLibrary = false; });
+  await frames();
+  await expect(page.locator('#end-note')).toContainText('152 pins');
+  checks.push('an older refresh arriving last cannot remove pins from a newer snapshot');
+
+  await page.evaluate(() => {
+    window.holdLibrary = true; window.pendingLibraries = [];
+    window.testDownloads([{ id: 'before-reorder-save', title: 'Background save', state: 'completed' }]);
+  });
+  await expect.poll(() => page.evaluate(() => window.pendingLibraries.length)).toBe(1);
+  await page.locator('[data-pin-id="pin-0"] .tile-main').focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(page.locator('.pin').first()).toHaveAttribute('data-pin-id', 'pin-1');
+  await page.evaluate(() => { window.pendingLibraries[0](); window.holdLibrary = false; });
+  await frames();
+  await expect(page.locator('.pin').first()).toHaveAttribute('data-pin-id', 'pin-1');
+  checks.push('a refresh started before reordering cannot undo the saved order');
+
+  await page.evaluate(() => {
+    const other = structuredClone(window.testLibrary.collections[0]); other.id = 'other-board'; other.name = 'Other board';
+    window.testLibrary.collections.push(other, { ...other, id: 'closed-board', name: 'Closed board', closed: true });
+    window.testLibrary.pins.push({ ...structuredClone(window.testLibrary.pins[0]), id: 'other-board-pin', collectionId: other.id });
+    window.testDownloads([{ id: 'other-board-save', title: 'Other board', state: 'completed' }]);
+  });
+  await expect(page.locator('.collection-tab')).toHaveCount(2);
+  await page.evaluate(() => { window.holdLibrary = true; window.pendingLibraries = []; });
+  await page.locator('#open-collection').click(); await page.locator('#browse-collection').click();
+  await expect.poll(() => page.evaluate(() => window.pendingLibraries.length)).toBe(1);
+  await page.evaluate(() => window.testDownloads([{ id: 'during-open-save', title: 'Background save', state: 'completed' }]));
+  await expect.poll(() => page.evaluate(() => window.pendingLibraries.length)).toBe(2);
+  await page.evaluate(() => window.pendingLibraries[1]());
+  await frames();
+  await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText(collection.name);
+  await page.evaluate(() => { window.pendingLibraries[0](); window.holdLibrary = false; });
+  await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText('Other board');
+  await expect(page.locator('#save-collection-file')).toBeEnabled();
+  await page.getByRole('tab', { name: collection.name, exact: true }).click();
+  checks.push('a newer background refresh preserves a pending foreground request to open another board');
+
+  await page.evaluate(() => { window.holdLibrary = true; window.pendingLibraries = []; });
+  await page.locator('#save-collection-file').click();
+  await expect.poll(() => page.evaluate(() => window.pendingLibraries.length)).toBe(1);
+  await page.getByRole('tab', { name: 'Other board', exact: true }).click();
+  await expect(page.locator('[data-pin-id="other-board-pin"]')).toBeVisible();
+  await page.evaluate(() => { window.pendingLibraries[0](); window.holdLibrary = false; });
+  await expect(page.locator('#save-collection-file')).toBeEnabled();
+  await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText('Other board');
+  await expect(page.locator('[data-pin-id="other-board-pin"]')).toBeVisible();
+  checks.push('a delayed save refresh cannot switch back after the user chooses another board');
+
+  await page.getByRole('tab', { name: collection.name, exact: true }).click();
+  await page.evaluate(() => { window.holdSaveCollection = true; });
+  await page.locator('#save-collection-file').click();
+  await page.getByRole('tab', { name: 'Other board', exact: true }).click();
+  await page.evaluate(() => { window.releaseSaveCollection(); window.holdSaveCollection = false; });
+  await expect(page.locator('#save-collection-file')).toBeEnabled();
+  await expect(page.locator('.collection-tab[aria-selected="true"]')).toHaveText('Other board');
+  checks.push('changing boards while saving the list also preserves the newer selection');
+
+  await page.getByRole('tab', { name: 'Other board', exact: true }).focus();
+  await page.evaluate(() => {
+    window.retainedTab = document.activeElement;
+    window.testDownloads([{ id: 'unchanged-tabs-save', title: 'Background save', state: 'completed' }]);
+  });
+  await frames();
+  assert.equal(await page.evaluate(() => window.retainedTab.isConnected && document.activeElement === window.retainedTab), true, 'an unchanged tab bar keeps its nodes and keyboard focus during refresh');
+  checks.push('unchanged collection tabs retain their DOM nodes and keyboard focus during background refreshes');
+
+  await page.keyboard.press('Control+t');
+  const temporaryId = await page.locator('.collection-tab[aria-selected="true"]').getAttribute('data-collection-id');
+  await page.getByRole('tab', { name: collection.name, exact: true }).click();
+  while (await page.locator('.pin').count() < 152) {
+    await page.evaluate(() => scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    await frames();
+  }
+  await rowScroll(35);
+  await expect(page.locator('[data-pin-id="pin-105"] img')).toHaveCount(1);
+  const stableScroll = (await metrics()).scroll;
+  await page.evaluate(() => {
+    window.backgroundCard = document.querySelector('[data-pin-id="pin-105"]');
+    window.backgroundImage = window.backgroundCard.querySelector('img');
+  });
+  await page.locator(`[data-close-collection="${temporaryId}"]`).click();
+  await expect(page.locator('.pin')).toHaveCount(152);
+  await frames();
+  assert.equal(await page.evaluate(() => window.backgroundCard.isConnected && window.backgroundImage.isConnected), true, 'closing a background temporary tab keeps the visible preview');
+  assert.ok(Math.abs((await metrics()).scroll - stableScroll) <= 1, 'closing a background temporary tab keeps the loaded rows and scroll position');
+  await page.locator('#open-collection').click();
+  await page.locator('#clear-collection-history').click();
+  await expect(page.locator('#collection-file-status')).toContainText('History cleared');
+  await expect(page.locator('.pin')).toHaveCount(152);
+  assert.equal(await page.evaluate(() => window.backgroundImage.isConnected), true, 'clearing recent history keeps the board preview');
+  await page.keyboard.press('Escape'); await frames();
+  assert.ok(Math.abs((await metrics()).scroll - stableScroll) <= 1, 'clearing recent history keeps the board scroll position');
+  checks.push('closing a background temporary tab and clearing recent history retain previews, loaded rows, and scrolling');
+
+  await page.goto(url);
+  await expect(page.locator('.pin')).toHaveCount(48);
   await expect.poll(async () => (await metrics()).pitch).toBeGreaterThan(0);
   await rowScroll(3);
   const scrolled = await metrics();
