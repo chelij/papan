@@ -6,6 +6,8 @@ Papan v0.3.0 adds local pose extraction and brings downloads, pose work, and inc
 - **Compact card controls.** Once pose tools are installed, a stickman icon offers extraction or pose playback. A transparent outlined pose badge marks the displayed video's result. Clicking the preview opens pin details, replacing the redundant three-dot button.
 - **Shared background progress.** Activity shows unfinished downloads, pose jobs, and mobile shares with the correct recovery actions. Successful shares disappear from Activity while their saved receipts remain in Receive from phone.
 
+- **Reliable rapid collection.** Closing and immediately reopening Add link cancels the old inspection while keeping the new one active.
+
 [Full changelog](https://github.com/chelij/papan/blob/v0.3.0/CHANGELOG.md) · [Pose setup and usage](https://github.com/chelij/papan/blob/v0.3.0/docs/usage.md#extract-poses-for-controlnet)
 
 Download the desktop archive for your OS/architecture, extract it, and launch `papan`, `papan.exe`, or `Papan.app`. Keep the extracted folder together. The separate `Papan-pose-0.3.0-*` assets are downloaded automatically after pose setup is confirmed; ordinary collection use does not need them. Each archive/runtime includes a SHA-256 checksum.

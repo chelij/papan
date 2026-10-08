@@ -19,6 +19,7 @@ Changes since [v0.2.3](https://github.com/chelij/papan/releases/tag/v0.2.3).
 ### Fixed
 
 - Retain derived pose media during preview repair, collection conversion, media cleanup, recovery, and removal history. Keep protected source/output media encrypted and clean up temporary plaintext on cancellation or failure.
+- Keep a newly reopened add dialog’s inspection active when an earlier close event arrives; cancel the closed request without discarding the new one.
 - Preserve playing card previews when attachments change, and keep pose controls aligned with the displayed album video while the next slide loads.
 
 ### Compatibility and checks

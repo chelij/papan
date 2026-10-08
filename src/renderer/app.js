@@ -522,6 +522,8 @@ function toastError(error) { toast(error.message || String(error)); }
 function openAdd(link = '', inspect = false) {
   if (collection()?.locked) { openPassword('unlock'); return; }
   if ($('add-dialog').open) return;
+  if (addRequest) api.cancel(addRequest).catch(() => {});
+  addRequest = null; busyAdd(false);
   inspection = null;
   selected.clear();
   $('inspection').hidden = true;
@@ -1336,6 +1338,7 @@ document.addEventListener('click', event => {
   dismissPopoverClick = false;
 }, true);
 $('add-dialog').addEventListener('close', () => {
+  if ($('add-dialog').open) return;
   if (addRequest) api.cancel(addRequest).catch(() => {});
   addRequest = null;
   busyAdd(false);
