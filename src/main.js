@@ -14,6 +14,7 @@ import { openPhoneReceiver } from './phone-receiver.js';
 import { savePhoneLink } from './phone-save.js';
 import { poseSource, savePosePin } from './pose-pin.js';
 import { POSE_GUIDE, poseSetup } from './pose.js';
+import { renderPage } from './page-browser.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName('Papan');
@@ -329,7 +330,7 @@ function installHandlers() {
     browserSessionWrites = save.catch(() => {}); return save;
   });
   handle('inspect', input => job(input.requestId, async signal => {
-    const result = await inspectLink(input.url, signal, browserSession);
+    const result = await inspectLink(input.url, signal, browserSession, renderPage);
     if (signal.aborted) throw new Error('Cancelled.');
     const id = randomUUID();
     for (const [key, value] of inspections) if (Date.now() - value.time > 30 * 60 * 1000) inspections.delete(key);
@@ -611,7 +612,7 @@ else {
       decode: (task, required) => library.protection.decodeTask(task, required),
     });
     phoneReceiver = await openPhoneReceiver(library.root, {
-      run: (task, signal, progress) => savePhoneLink(task, { snapshot: library.snapshot, requireUnlocked: id => library.requireUnlocked(id), inspect: (url, signal) => inspectLink(url, signal, browserSession), save: savePin }, signal, progress),
+      run: (task, signal, progress) => savePhoneLink(task, { snapshot: library.snapshot, requireUnlocked: id => library.requireUnlocked(id), inspect: (url, signal) => inspectLink(url, signal, browserSession, renderPage), save: savePin }, signal, progress),
       collection: (id, unlocked = true) => unlocked ? library.requireUnlocked(id) : library.snapshot().collections.find(c => c.id === id) || (() => { throw new Error('Choose a destination collection.'); })(),
       available: () => !protectionBusy, publish: publishPhoneInbox,
       codec: { encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()), decode: task => library.protection.decodeTask(task) },

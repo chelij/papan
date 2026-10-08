@@ -22,21 +22,27 @@ def session_cookies(request):
         return ()
     if not isinstance(browser, str) or browser not in BROWSERS | {"auto"}:
         raise ValueError("Choose a supported browser for session fallback.")
-    host = urlsplit(request["url"]).hostname.lower().removeprefix("www.")
-    if host in ("x.com", "twitter.com", "mobile.twitter.com"):
+    host = urlsplit(web_url(request["url"])).hostname.lower()
+    site = host.removeprefix("www.")
+    if request.get("action") == "browser-cookies":
+        domain = request.get("cookieDomain", host)
+        if not isinstance(domain, str) or not domain or any(char in domain for char in "/%_* \t\r\n") or not (host == domain or host.endswith("." + domain)):
+            raise ValueError("The browser cookie domain must match the linked site.")
+        domain = "." + domain
+    elif site in ("x.com", "twitter.com", "mobile.twitter.com"):
         domain = ".x.com"
-    elif host in ("instagram.com", "m.instagram.com"):
+    elif site in ("instagram.com", "m.instagram.com"):
         domain = ".instagram.com"
-    elif host in ("youtube.com", "m.youtube.com", "youtu.be"):
+    elif site in ("youtube.com", "m.youtube.com", "youtu.be"):
         domain = ".youtube.com"
     else:
         raise ValueError("Browser sessions are supported for X, Instagram, and YouTube links.")
     if browser == "auto":
-        required = {".x.com": {"auth_token"}, ".instagram.com": {"sessionid"}, ".youtube.com": {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}}[domain]
+        required = {".x.com": {"auth_token"}, ".instagram.com": {"sessionid"}, ".youtube.com": {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}}.get(domain)
         for candidate in ("firefox", "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "safari"):
             try:
                 cookies = session_cookies({**request, "browser": candidate})
-                if any(cookie.name in required for cookie in cookies):
+                if cookies and (not required or any(cookie.name in required for cookie in cookies)):
                     return cookies
             except ValueError:
                 continue
@@ -48,6 +54,8 @@ def session_cookies(request):
         if not cookies and sys.platform == "linux" and browser not in ("firefox", "safari"):
             cookies = load_cookies([browser, None, "gnomekeyring", None, domain])
         cookies = [cookie for cookie in cookies if not cookie.is_expired()]
+        if request.get("action") == "browser-cookies":
+            cookies = [cookie for cookie in cookies if host == cookie.domain.lstrip(".") or (cookie.domain_initial_dot and host.endswith("." + cookie.domain.lstrip(".")))]
     except Exception:
         raise ValueError("Could not read the browser session. Sign in to the site in that browser and unlock its password store; on Windows, you may need to close the browser.") from None
     if not cookies:
@@ -303,6 +311,11 @@ def main():
         return {"gallery-dl": gallery_version, "yt-dlp": video_version, "Instaloader": instagram_version}
     request["url"] = web_url(request["url"])
     cookies = session_cookies(request)
+    if request["action"] == "browser-cookies":
+        # The native reader omits HttpOnly metadata; do not expose copied credentials to page scripts.
+        return [{"name": cookie.name, "value": cookie.value, "domain": cookie.domain, "hostOnly": not cookie.domain_initial_dot,
+                 "path": cookie.path or "/", "secure": bool(cookie.secure), "httpOnly": True,
+                 **({"expirationDate": cookie.expires} if cookie.expires is not None else {})} for cookie in cookies]
     if request["action"] == "inspect":
         if request["engine"] == "gallery":
             return gallery_inspect(request["url"], cookies)

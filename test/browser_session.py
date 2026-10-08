@@ -56,6 +56,19 @@ class BrowserSessionTests(unittest.TestCase):
         self.assertIsNone(extract.video_options({})["cookiefile"])
         self.assertIsNone(extract.video_options({})["cookiesfrombrowser"])
 
+    def test_general_pages_read_only_the_linked_site_and_keep_cookie_scope(self):
+        domain_cookie = Cookie(0, "session", "fixture", None, False, ".reddit.com", True, True, "/", True, True, None, False, None, None, {})
+        sibling = Cookie(0, "sibling", "fixture", None, False, "old.reddit.com", True, False, "/", True, True, None, False, None, None, {})
+        root_only = Cookie(0, "root", "fixture", None, False, "reddit.com", True, False, "/", True, True, None, False, None, None, {})
+        request = {"action": "browser-cookies", "browser": "auto", "url": "https://www.reddit.com/r/example/comments/123/post", "cookieDomain": "reddit.com"}
+        with patch("gallery_dl.cookies.load_cookies", return_value=[domain_cookie, sibling, root_only]) as load:
+            self.assertEqual(extract.session_cookies(request), [domain_cookie])
+            load.assert_called_once_with(["firefox", None, None, None, ".reddit.com"])
+        with patch("gallery_dl.cookies.load_cookies", side_effect=AssertionError("must not read browser")):
+            with self.assertRaises(ValueError):
+                extract.session_cookies({**request, "cookieDomain": "other.example"})
+            self.assertEqual(extract.session_cookies({**request, "browser": ""}), ())
+
 
 if __name__ == "__main__":
     unittest.main()

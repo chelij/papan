@@ -13,6 +13,7 @@ Set `PAPAN_DATA_DIR` to an empty temporary folder when experimenting with storag
 ```sh
 npm run check
 npm test
+npm run test:discovery
 npm run test:desktop
 npm run test:layout
 npm run test:interactions
@@ -33,6 +34,8 @@ npm run test:browser-session
 ```
 
 Desktop suites launch a real Electron window. Run them sequentially on an interactive desktop, or prefix each command with `xvfb-run -a` on a headless Linux runner. Screenshots and results go into ignored `artifacts/`.
+
+`test:discovery` runs actual Electron page rendering and materialization on Linux's headless Ozone backend, with both desktop display variables removed and a disposable profile. It checks late API images/videos, decoded JPEG previews, exact downloaded bytes, hidden gallery slides/lightbox originals, responsive sources, the direct/static fast path, separate memory-only sandboxed sessions, and cancellation cleanup. A synthetic Firefox SQLite profile exercises the actual native cookie reader and production helper against a cookie-gated webpage and media: anonymous-first/off behavior, host/path/Secure/expiry scope, cross-host redirects, pin privacy and session cleanup. `PAPAN_TEST_PAGE_URL` optionally adds a live JPEG-page check; set `PAPAN_TEST_MEDIA_COUNT` to check the expected image count and download every discovered image. Explicitly setting `PAPAN_TEST_BROWSER_SESSION=auto` allows that live inspection to read the linked site's personal browser cookies after public failure. Set `PAPAN_TEST_FORCE_BROWSER_SESSION=1` together with automatic mode to force cookies for the live page rather than waiting for public failure. Ordinary CI uses only local fixtures. Results go into `artifacts/discovery-check.json`. This backend check does not exercise the visible app window or IPC.
 
 `test:phone` exercises real desktop IPC, pairing, HTTP acceptance, extraction, receipts, restart, revocation, and encrypted inbox recoding on an isolated display. Android source, build tooling, and APK releases live in the separate [papan-android repository](https://github.com/chelij/papan-android).
 

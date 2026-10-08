@@ -11,6 +11,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import developmentFFmpeg from 'ffmpeg-static';
 import sharp from 'sharp';
+import { Cookie, CookieJar, getPublicSuffix } from 'tough-cookie';
 import { mediaLocation } from './collection-files.js';
 
 // Staging files are renamed/removed immediately; cached handles lock them on Windows.
@@ -83,6 +84,10 @@ function run(command, args, { input, signal, timeout = 90000, env = {} } = {}) {
 }
 
 export async function extractWorker(request, signal) {
+  if (request.action === 'browser-cookies') {
+    const host = new URL(webURL(request.url)).hostname.replace(/^\[|\]$/g, '');
+    request = { ...request, cookieDomain: getPublicSuffix(host, { allowSpecialUseDomain: true, ignoreError: true }) || host };
+  }
   const executable = path.join(project, 'vendor', process.platform === 'win32' ? 'papan-extract.exe' : 'papan-extract');
   let command = executable, args = [];
   try { if (process.env.PAPAN_PYTHON_WORKER === '1') throw new Error('Use source helper'); await access(executable); } catch {
@@ -109,10 +114,18 @@ export async function extractWorker(request, signal) {
   return data.result;
 }
 
-async function fetchWeb(value, { signal, headers = {}, method = 'GET' } = {}) {
+async function fetchWeb(value, { signal, headers = {}, method = 'GET', browser = '' } = {}) {
   let url = webURL(value);
+  const jar = new CookieJar();
+  if (browser) for (const cookie of await extractWorker({ action: 'browser-cookies', url, browser }, signal)) {
+    jar.setCookieSync(new Cookie({ key: cookie.name, value: cookie.value, domain: cookie.hostOnly ? undefined : cookie.domain.replace(/^\./, ''),
+      path: cookie.path, secure: cookie.secure, httpOnly: cookie.httpOnly,
+      ...(cookie.expirationDate ? { expires: new Date(cookie.expirationDate * 1000) } : {}) }), url, { ignoreError: true });
+  }
   for (let redirects = 0; redirects < 6; redirects++) {
-    const response = await fetch(url, { method, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000), redirect: 'manual', headers: { 'User-Agent': 'Papan/0.1 (+public media collector)', ...headers } });
+    const cookies = jar.getCookieStringSync(url);
+    const response = await fetch(url, { method, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000), redirect: 'manual', headers: { 'User-Agent': 'Papan/0.1 (+public media collector)', ...headers, ...(cookies ? { Cookie: cookies } : {}) } });
+    if (browser) for (const cookie of response.headers.getSetCookie()) jar.setCookieSync(cookie, url, { ignoreError: true });
     if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
       await response.body?.cancel();
       url = webURL(response.headers.get('location'), url);
@@ -143,35 +156,50 @@ function candidate(url, kind, extra = {}) {
 export function parsePage(html, sourceUrl) {
   const $ = load(html);
   const resolve = value => { try { return webURL(value, sourceUrl); } catch { return null; } };
-  const title = $('meta[property="og:title"]').attr('content') || $('title').text() || new URL(sourceUrl).hostname;
+  const source = new URL(sourceUrl);
+  const postId = source.pathname.match(/\/(?:comments|gallery)\/([a-z0-9]+)(?:\/|$)/i)?.[1];
+  let post = /(^|\.)reddit\.com$/.test(source.hostname) ? $('shreddit-post[permalink]').filter((_, el) => {
+    try { return (postId && $(el).attr('id') === `t3_${postId}`) || new URL($(el).attr('permalink'), sourceUrl).pathname.replace(/\/$/, '') === source.pathname.replace(/\/$/, ''); } catch { return false; }
+  }).first() : null;
+  if (!post?.length && postId && /(^|\.)reddit\.com$/.test(source.hostname)) post = $('.thing.link[data-fullname]').filter((_, el) => $(el).attr('data-fullname') === `t3_${postId}`).first();
+  const title = post?.attr('post-title') || post?.find('a.title').first().text() || $('meta[property="og:title"]').attr('content') || $('title').text() || source.hostname;
+  if (!post?.length && /^(?:Reddit\s*[-:]\s*)?(?:prove your humanity|verify (?:that )?you(?:['’]re| are) (?:a )?human|just a moment|you(?:['’]ve| have) been blocked)[.!…]*$/i.test(title.trim())) throw new Error('This site is asking for human verification. Open the post in your browser, complete verification or sign in, then retry with use browser sessions enabled in Papan’s Privacy settings.');
   const items = [], seen = new Set();
   const add = (value, kind, extra) => {
     const url = resolve(value);
     if (url && !seen.has(url) && items.length < 50) { seen.add(url); items.push(candidate(url, kind, extra)); }
   };
-  $('meta[property="og:image"], meta[property="og:image:secure_url"]').each((_, el) => add($(el).attr('content'), 'image'));
-  $('video').each((_, el) => {
+  const scope = post?.length ? post : $('main').length ? $('main') : $('article').length ? $('article') : $('body');
+  const originals = post?.find('gallery-carousel img[src]').filter((_, el) => { try { return new URL($(el).attr('src')).hostname === 'i.redd.it'; } catch { return false; } });
+  const legacyGallery = post?.find('a.gallery-item-thumbnail-link[href]').filter((_, el) => { try { const url = new URL($(el).attr('href'), sourceUrl); return ['preview.redd.it', 'i.redd.it'].includes(url.hostname) && /\.(jpe?g|png|gif|webp)$/i.test(url.pathname); } catch { return false; } });
+  if (!originals?.length && !legacyGallery?.length) $('meta[property="og:image"], meta[property="og:image:secure_url"], meta[name="twitter:image"]').each((_, el) => add($(el).attr('content'), 'image'));
+  scope.find('video').each((_, el) => {
     const video = $(el);
     const src = video.attr('src') || video.find('source').first().attr('src');
     if (src) add(src, 'video', { poster: resolve(video.attr('poster')) });
   });
-  const scope = $('article').length ? $('article') : $('main').length ? $('main') : $('body');
-  scope.find('img').each((_, el) => {
+  if (legacyGallery?.length) legacyGallery.each((_, el) => {
+    const url = new URL($(el).attr('href'), sourceUrl); url.protocol = 'https:'; url.hostname = 'i.redd.it'; url.search = ''; url.hash = '';
+    add(url.href, 'image', { alt: ($(el).find('img').attr('alt') || '').slice(0, 250) });
+  });
+  else (originals?.length ? originals : scope.find('img')).each((_, el) => {
     const img = $(el);
     if ((Number(img.attr('width')) > 0 && Number(img.attr('width')) < 100) || (Number(img.attr('height')) > 0 && Number(img.attr('height')) < 80)) return;
-    add(img.attr('data-src') || img.attr('src'), 'image', { alt: (img.attr('alt') || '').slice(0, 250) });
+    const srcset = img.attr('data-srcset') || img.attr('srcset') || img.closest('picture').find('source[srcset]').first().attr('srcset');
+    const responsive = srcset?.split(',').map(value => value.trim().split(/\s+/)).sort((a, b) => (parseFloat(b[1]) || 1) - (parseFloat(a[1]) || 1))[0]?.[0];
+    add(img.attr('data-src') || img.attr('data-original') || img.attr('data-lazy-src') || responsive || img.attr('src'), 'image', { alt: (img.attr('alt') || '').slice(0, 250) });
   });
-  const document = new JSDOM(html, { url: sourceUrl });
+  const document = new JSDOM(post?.length ? post.prop('outerHTML') : html, { url: sourceUrl });
   let article;
   try { article = new Readability(document.window.document, { maxElemsToParse: 50000 }).parse(); }
   finally { document.window.close(); }
-  const text = (article?.textContent || $('meta[name="description"]').attr('content') || '').trim().slice(0, 100000);
-  if (text.length >= 80) items.push({ key: 'text', kind: 'text', text });
+  const text = (post?.length ? post.find('[slot="text-body"]').text() || post.find('.usertext-body .md').first().text() : article?.textContent || $('meta[name="description"]').attr('content') || '').trim().slice(0, 100000);
+  if (text && (post?.length || text.length >= 80)) items.push({ key: 'text', kind: 'text', text });
   if (!items.length) throw new Error('No public images, videos, or readable article text were found on this page.');
-  return { sourceUrl, title: title.trim().slice(0, 200), author: article?.byline || '', text, items: items.slice(0, 50), engine: 'page' };
+  return { sourceUrl, title: title.trim().slice(0, 200), author: post?.attr('author') || post?.attr('data-author') || article?.byline || '', text, items: items.slice(0, 50), engine: 'page' };
 }
 
-export async function inspectLink(input, signal, browser = '') {
+export async function inspectLink(input, signal, browser = '', renderPage) {
   if (!BROWSER_SESSION_MODES.includes(browser)) throw new Error('Invalid browser-session mode.');
   const sourceUrl = webURL(input);
   let engine = routeSource(sourceUrl);
@@ -199,26 +227,46 @@ export async function inspectLink(input, signal, browser = '') {
     if (data.text?.trim()) items.push({ key: 'text', kind: 'text', text: data.text });
     return { ...data, sourceUrl, engine, items: items.slice(0, 50) };
   }
-  const { response, url } = await fetchWeb(sourceUrl, { signal });
-  // Redirects can turn short links into a known source.
-  if (routeSource(url) !== 'page') { await response.body?.cancel(); return inspectLink(url, signal, browser); }
-  const contentType = (response.headers.get('content-type') || '').toLowerCase();
-  const kind = kindFromType(contentType);
-  if (kind) {
-    await response.body?.cancel();
-    return { sourceUrl, title: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Saved media'), author: '', text: '', engine: 'page', items: [candidate(url, kind)] };
+  let result, failure, url = sourceUrl, html = '';
+  try {
+    const fetched = await fetchWeb(sourceUrl, { signal });
+    const { response } = fetched; url = fetched.url;
+    // Redirects can turn short links into a known source.
+    if (routeSource(url) !== 'page') { await response.body?.cancel(); return inspectLink(url, signal, browser, renderPage); }
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const kind = kindFromType(contentType);
+    if (kind) {
+      await response.body?.cancel();
+      return { sourceUrl, title: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Saved media'), author: '', text: '', engine: 'page', items: [candidate(url, kind)] };
+    }
+    if (!contentType.includes('html') && !contentType.includes('text/plain')) { await response.body?.cancel(); throw new Error('This link is not an image, video, or readable page.'); }
+    const chunks = [];
+    const stream = Readable.fromWeb(response.body).pipe(sizeLimiter(MAX_HTML));
+    for await (const chunk of stream) chunks.push(chunk);
+    html = Buffer.concat(chunks).toString('utf8');
+    result = parsePage(html, url);
+  } catch (error) { if (signal?.aborted) throw error; failure = error; }
+  if (renderPage && (!result || load(html)('script[src], script:not([type]), script[type="module"], script[type="text/javascript"]').length)) {
+    try {
+      const rendered = await renderPage(url, signal);
+      const discovered = parsePage(rendered.html, webURL(rendered.url));
+      if (discovered.items.some(item => item.kind !== 'text') || !result) result = { ...discovered, sourceUrl };
+    } catch (error) { if (signal?.aborted) throw error; failure = error; }
   }
-  if (!contentType.includes('html') && !contentType.includes('text/plain')) { await response.body?.cancel(); throw new Error('This link is not an image, video, or readable page.'); }
-  const chunks = [];
-  const stream = Readable.fromWeb(response.body).pipe(sizeLimiter(MAX_HTML));
-  for await (const chunk of stream) chunks.push(chunk);
-  return parsePage(Buffer.concat(chunks).toString('utf8'), url);
+  if (!result && browser && renderPage) {
+    try {
+      const rendered = await renderPage(url, signal, browser);
+      result = { ...parsePage(rendered.html, webURL(rendered.url)), sourceUrl };
+    } catch (error) { if (signal?.aborted) throw error; failure = error; }
+  }
+  if (!result) throw failure;
+  return result;
 }
 
 function safeRemote(value) { try { return value ? webURL(value) : null; } catch { return null; } }
 
-async function downloadDirect(item, destination, signal) {
-  const { response } = await fetchWeb(item.url, { signal });
+async function downloadDirect(item, destination, signal, browser = '') {
+  const { response } = await fetchWeb(item.url, { signal, browser });
   const type = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
   const detected = kindFromType(type);
   if (detected !== item.kind) { await response.body?.cancel(); throw new Error('The source returned a page instead of the selected media.'); }
@@ -270,7 +318,15 @@ export async function materialize(pin, root, offline, signal, progress = () => {
         file = path.join(stage, `${randomUUID()}${typeof source === 'string' ? path.extname(source) : source.ext}`);
         if (typeof source === 'string') await copyFile(source, file);
         else await pipeline(Readable.from(source.stream(0, source.size - 1, signal)), createWriteStream(file, { mode: 0o600 }), { signal });
-      } else file = pin.engine === 'page' ? await downloadDirect(item, path.join(stage, randomUUID()), signal) : extracted.find(result => result.key === item.key)?.file;
+      } else if (pin.engine === 'page') {
+        const target = path.join(stage, randomUUID());
+        try { file = await downloadDirect(item, target, signal); }
+        catch (error) {
+          if (!browser || signal?.aborted) throw error;
+          progress('retrying with browser session…');
+          file = await downloadDirect(item, target, signal, browser);
+        }
+      } else file = extracted.find(result => result.key === item.key)?.file;
       if (!file || path.dirname(path.resolve(file)) !== path.resolve(stage)) throw new Error('The extractor returned an invalid media file.');
       if ((await stat(file)).size > MAX_FILE) throw new Error('This media exceeds the 512 MiB limit.');
       let preview;
