@@ -61,6 +61,7 @@ export function validateContents(data) {
       delete item.previewFile; delete item.localFile; delete item.vault; delete item.encrypted;
     }
     if (!itemIds.has(pin.coverId)) throw new Error('Invalid collection cover.');
+    if (pin.items.some(item => item.poseFor !== undefined && (item.kind !== 'video' || item.id === pin.coverId || !pin.items.some(source => source.id === item.poseFor && source.kind === 'video' && !source.poseFor) || pin.items.filter(pose => pose.poseFor === item.poseFor).length !== 1))) throw new Error('Invalid pose attachment.');
     if (pin.previews !== undefined) pin.previews = pinPreviews(pin.previews, pin.items, pin.coverId);
   }
   return data;

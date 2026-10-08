@@ -68,10 +68,11 @@ export async function openDownloadQueue(root, run, publish = () => {}, codec = {
       return async () => { tasks = before; await persist(undefined, true); };
     },
     async add(kind, payload, title) {
+      if (!['save', 'collection', 'pin'].includes(kind)) throw new Error('Invalid task type.');
       if (tasks.filter(task => ['queued', 'running'].includes(task.state)).length >= 100) throw new Error('The download queue is full. Wait for a task to finish.');
       if (tasks.map(task => codec.decode(task)).filter(task => task.payload).some(task => ['queued', 'running', 'failed', 'cancelled'].includes(task.state) && task.kind === kind &&
-          (kind === 'save' ? task.payload.pin.sourceUrl === payload.pin.sourceUrl && task.payload.pin.collectionId === payload.pin.collectionId : task.payload.id === payload.id))) {
-        throw new Error('This item already has a task. Retry, cancel, or dismiss it from Downloads.');
+          (kind === 'save' ? task.payload.pin.sourceUrl === payload.pin.sourceUrl && task.payload.pin.collectionId === payload.pin.collectionId : task.payload.id === payload.id && (!task.payload.extractPose || !payload.extractPose || task.payload.itemId === payload.itemId)))) {
+        throw new Error('This item already has a task. Retry, cancel, or dismiss it from Activity.');
       }
       const task = { id: randomUUID(), kind, title, payload: structuredClone(payload), state: 'queued', progress: 'waiting', createdAt: new Date().toISOString() };
       tasks.push(task);

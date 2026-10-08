@@ -171,7 +171,7 @@ try {
   await expect(page.locator('.pin')).toHaveCount(1);
   await page.getByRole('searchbox', { name: 'Search collection', exact: true }).fill('');
   await page.getByRole('searchbox', { name: 'Search collection', exact: true }).press('Escape');
-  await page.locator('.pin-detail').nth(1).click();
+  await page.locator('.tile-main').nth(1).click();
   await page.getByRole('button', { name: 'remove pin', exact: true }).click();
   await page.getByRole('button', { name: 'remove', exact: true }).click();
   await expect(page.locator('.pin')).toHaveCount(2);

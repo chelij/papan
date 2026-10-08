@@ -2,12 +2,12 @@ const $ = id => document.getElementById(id);
 const api = window.papan;
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const mediaURL = (pin, item, original = false) => item.encrypted || item.previewFile || item.previewPath || item.localFile || item.localPath
-  ? `papan://media/${pin.id}/${item.id}/${original ? 'original' : 'preview'}?v=${encodeURIComponent(pin.folder || item.previewVersion || '')}` : item.url;
+  ? `papan://media/${pin.id}/${item.id}/${original ? 'original' : 'preview'}?v=${encodeURIComponent(item.poseTaskId || pin.folder || item.previewVersion || '')}` : item.url;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let library = { collections: [], pins: [] }, collectionId = null, inspection = null;
 let temporaryTabs = [], tabOrder = [];
 let selected = new Set(), coverId = null, addRequest = null, settingsRequest = null, settingsOriginal = null;
-let creatingCollection = false, shown = 0, filtered = [], viewerPin = null, viewerIndex = 0;
+let creatingCollection = false, shown = 0, filtered = [], viewerPin = null, viewerIndex = 0, viewingPose = false;
 let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0, gridRowHeight = 0, wheelScrollTarget = null, layoutAnchor = null;
 let refreshAnchor = null;
 let libraryRequest = 0, appliedLibraryRequest = 0, collectionChoice = 0;
@@ -15,7 +15,7 @@ let dragState = null, dragFrame = 0, reorderPending = false;
 let pinPreview = null;
 let layoutPreview = null;
 let collectionFileBusy = false, editingPin = null, undoId = null, exportRequest = null;
-let downloadStates = new Map();
+let downloadStates = new Map(), downloadTasks = [], poseToolsInstalled = false;
 let passwordAction = null, passwordCollection = null, passwordReplacementTab = null, passwordBusy = false;
 let phoneState = null, phonePairing = null, phoneSeen = new Map();
 let appWindowVisible = true;
@@ -54,6 +54,10 @@ async function refresh(preferred, replacementTab = null) {
   collectionId = [preferred, collectionId, unlocked[0]?.id].find(id => unlocked.some(item => item.id === id)) || null;
   if (preferred && collectionId === preferred) collectionChoice++;
   render({ preserveBoard: collectionId === previousCollection });
+  if ($('viewer').open && viewerPin) {
+    viewerPin = library.pins.find(pin => pin.id === viewerPin.id);
+    if (viewerPin) renderViewer(false); else $('viewer').close();
+  }
   for (const pin of library.pins) {
     if (!api.repairPreviews || previewRepairs.has(pin.id) || !pin.items.some(item => item.kind === 'video' && item.previewVersion !== 1 && (item.previewFile || item.previewPath || item.encrypted))) continue;
     previewRepairs.add(pin.id);
@@ -118,7 +122,8 @@ function render({ preserveBoard = false } = {}) {
   $('grid').hidden = !filtered.length;
   const pins = new Map(filtered.slice(0, limit).map(pin => [pin.id, pin])), retained = new Map();
   for (const card of [...$('grid').children]) {
-    if (preserveBoard && pins.has(card.dataset.pinId) && card._signature === JSON.stringify(pins.get(card.dataset.pinId))) retained.set(card.dataset.pinId, card);
+    const pin = pins.get(card.dataset.pinId);
+    if (preserveBoard && pin && card._signature === JSON.stringify({ ...pin, items: pin.items.filter(item => !item.poseFor) })) retained.set(card.dataset.pinId, card);
     else {
       pause(card); card._cancelSizing?.(); card._loading?.removeAttribute('src');
       visible.delete(card); observer.unobserve(card); card.remove();
@@ -172,10 +177,11 @@ function appendPins(limit = 48, retained = new Map()) {
     const existing = retained.get(pin.id), following = $('grid').children[shown + index] || null;
     if (existing) {
       // Retain measured dimensions, in-flight decoding, and slideshow/video state.
-      pin.items = existing._pin.items;
+      pin.items = pin.items.map(item => item.poseFor ? item : existing._pin.items.find(previous => previous.id === item.id) || item);
       existing._pin = pin;
       existing.draggable = $('grid').dataset.scope !== 'all';
       existing.querySelector('.tile-collection').textContent = $('grid').dataset.scope === 'all' ? library.collections.find(item => item.id === pin.collectionId)?.name || '' : '';
+      showSlide(existing, false);
       if (existing !== following) $('grid').insertBefore(existing, following);
       continue;
     }
@@ -184,19 +190,25 @@ function appendPins(limit = 48, retained = new Map()) {
     card.draggable = $('grid').dataset.scope !== 'all';
     card.setAttribute('role', 'listitem');
     card.dataset.pinId = pin.id;
-    card._signature = JSON.stringify(pin);
+    card._signature = JSON.stringify({ ...pin, items: pin.items.filter(item => !item.poseFor) });
     card._pin = pin;
-    const visual = pin.items.filter(item => item.kind !== 'text');
-    card._slides = pin.previews ? pin.previews.map(preview => pin.items.find(item => item.id === preview.itemId)) : visual.length ? visual : pin.items;
+    const visual = pin.items.filter(item => item.kind !== 'text' && !item.poseFor);
+    card._slides = pin.previews ? pin.previews.map(preview => pin.items.find(item => item.id === preview.itemId && !item.poseFor)).filter(Boolean) : visual.length ? visual : pin.items.filter(item => !item.poseFor);
     card.classList.toggle('album', card._slides.length > 1);
     card._index = Math.max(0, card._slides.findIndex(item => item.id === pin.coverId));
     card._sized = card._slides.length < 2 || card._slides.every(item => item.kind === 'text' || itemRatio(item));
     card._last = Date.now();
     const domain = new URL(pin.sourceUrl).hostname.replace(/^www\./, '');
-    card.innerHTML = `<button class="tile-main" aria-label="${escapeHTML(pin.title)}"><div class="tile-media"></div><span class="tile-overlay"><span class="tile-collection">${$('grid').dataset.scope === 'all' ? escapeHTML(library.collections.find(item => item.id === pin.collectionId)?.name) : ''}</span><span class="tile-title">${escapeHTML(pin.title)}</span><span class="tile-source">${escapeHTML(domain)}</span></span></button><button class="pin-detail" aria-label="Details for ${escapeHTML(pin.title)}" title="View saved items">···</button>${card._slides.length > 1 ? `<span class="album-mark" aria-label="${card._slides.length} slides"><span class="slide-dot active"></span>${'<span class="slide-dot"></span>'.repeat(Math.min(card._slides.length - 1, 5))}<span class="album-count">${card._slides.length}</span></span>` : ''}`;
-    card.querySelector('.tile-main').onclick = () => openViewer(pin);
+    card.innerHTML = `<button class="tile-main" aria-label="${escapeHTML(pin.title)}"><div class="tile-media"></div><span class="tile-overlay"><span class="tile-collection">${$('grid').dataset.scope === 'all' ? escapeHTML(library.collections.find(item => item.id === pin.collectionId)?.name) : ''}</span><span class="tile-title">${escapeHTML(pin.title)}</span><span class="tile-source-row"><span class="tile-source">${escapeHTML(domain)}</span><span class="pose-indicator" aria-label="Pose extracted" hidden>pose</span></span></span></button><button class="pin-pose" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="4" r="2"/><path d="M12 7v7M5 9l7 2 7-2M12 14l-5 7m5-7 5 7"/></svg></button>${card._slides.length > 1 ? `<span class="album-mark" aria-label="${card._slides.length} slides"><span class="slide-dot active"></span>${'<span class="slide-dot"></span>'.repeat(Math.min(card._slides.length - 1, 5))}<span class="album-count">${card._slides.length}</span></span>` : ''}`;
+    card.querySelector('.tile-main').onclick = () => openViewer(card._pin);
     card.querySelector('.tile-main').setAttribute('aria-describedby', 'reorder-help');
-    card.querySelector('.pin-detail').onclick = () => openViewer(pin);
+    card.querySelector('.pin-pose').onclick = () => {
+      const item = card._displayedItem || card._slides[card._index];
+      if (!poseToolsInstalled || item.kind !== 'video') return;
+      openViewer(card._pin, item.id);
+      $('extract-pose').click();
+    };
+    showSlide(card, false);
     $('grid').insertBefore(card, following);
     observer.observe(card);
   }
@@ -225,7 +237,7 @@ function layoutPins() {
     }
   }
   const ratios = library.pins.filter(pin => grid.dataset.scope === 'all' || pin.collectionId === collectionId)
-    .flatMap(pin => pin.items.filter(item => item.kind !== 'text').map(itemRatio)).filter(ratio => ratio !== null).sort((a, b) => a - b);
+    .flatMap(pin => pin.items.filter(item => item.kind !== 'text' && !item.poseFor).map(itemRatio)).filter(ratio => ratio !== null).sort((a, b) => a - b);
   const ratio = settings().fit === 'cover' || !ratios.length ? 1 : ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length;
   // Default density aims for 360px columns shared by every row.
   const columns = Math.max(1, Math.round((width + gap) / (1080 / settings().density + gap)));
@@ -280,7 +292,15 @@ new ResizeObserver(() => {
   if (width !== gridWidth) { gridWidth = width; scheduleLayout(); }
 }).observe($('grid'));
 
-async function showSlide(card) {
+async function showSlide(card, replaceMedia = true) {
+  if (!replaceMedia) {
+    const item = card._displayedItem || card._slides[card._index], pose = card._pin.items.find(value => value.poseFor === item.id), button = card.querySelector('.pin-pose');
+    button.hidden = !poseToolsInstalled || item.kind !== 'video';
+    button.title = pose ? 'view pose' : 'extract pose';
+    button.setAttribute('aria-label', `${pose ? 'View' : 'Extract'} pose for ${card._pin.title}`);
+    card.querySelector('.pose-indicator').hidden = !poseToolsInstalled || !pose;
+    return;
+  }
   const item = card._slides[card._index];
   const target = card.querySelector('.tile-media');
   const source = mediaURL(card._pin, item);
@@ -357,6 +377,8 @@ async function showSlide(card) {
     rememberDimensions(item, img.naturalWidth, img.naturalHeight);
     target.replaceChildren(img);
   }
+  card._displayedItem = item;
+  showSlide(card, false);
   card.querySelectorAll('.slide-dot').forEach((dot, index) => dot.classList.toggle('active', index === card._index % 6));
   card._last = Date.now();
   card._loaded = true;
@@ -760,9 +782,10 @@ $('settings-form').addEventListener('invalid', event => {
 $('discard-settings').onclick = () => $('settings-dialog').close();
 $('settings-dialog').addEventListener('cancel', event => { event.preventDefault(); closeSettings(); });
 
-function openViewer(pin) {
+function openViewer(pin, itemId = pin.coverId) {
   viewerPin = pin;
-  viewerIndex = Math.max(0, pin.items.findIndex(item => item.id === pin.coverId));
+  viewingPose = false;
+  viewerIndex = Math.max(0, pin.items.filter(item => !item.poseFor).findIndex(item => item.id === itemId));
   $('viewer-title').textContent = pin.title;
   $('viewer-source').textContent = `${pin.author ? `${pin.author} · ` : ''}${new URL(pin.sourceUrl).hostname} · ${pin.offline ? 'originals saved on this device' : 'cached previews · videos are silent'}`;
   $('viewer-details').innerHTML = `<div class="tag-list">${(pin.tags || []).map(tag => `<span class="tag">${escapeHTML(tag)}</span>`).join('')}</div>${pin.notes ? `<p class="viewer-notes">${escapeHTML(pin.notes)}</p>` : ''}`;
@@ -770,9 +793,28 @@ function openViewer(pin) {
   renderViewer();
 }
 
-function renderViewer() {
+function renderViewer(replaceMedia = true) {
+  const items = viewerPin.items.filter(item => !item.poseFor), original = items[viewerIndex];
+  const pose = viewerPin.items.find(item => item.poseFor === original.id);
+  const item = viewingPose && pose || original;
+  if (viewingPose && pose && $('pose-controls').dataset.poseKey !== `${pose.id}:${pose.poseTaskId || ''}`) replaceMedia = true;
+  $('extract-pose').hidden = original.kind !== 'video';
+  $('extract-pose').disabled = Boolean(library.collections.find(c => c.id === viewerPin.collectionId)?.locked);
+  $('extract-pose').textContent = pose ? viewingPose ? 'view original' : 'view pose' : 'extract pose';
+  $('extract-pose').title = $('extract-pose').disabled ? 'Unlock this collection to extract poses.' : pose ? viewingPose ? 'Play the original video' : 'Play this video’s pose attachment' : 'Create a pose control video from this saved video';
+  $('pose-controls').hidden = !viewingPose || !pose;
+  if (viewingPose && pose && (replaceMedia || $('pose-controls').dataset.poseKey !== `${pose.id}:${pose.poseTaskId || ''}`)) {
+    $('pose-controls').dataset.poseKey = `${pose.id}:${pose.poseTaskId || ''}`;
+    $('pose-person-count').value = pose.poseOptions?.personCount ?? 0;
+    $('pose-confidence').dataset.value = pose.poseOptions?.jointConfidence ?? 0.3;
+    $('pose-confidence').textContent = `joint confidence: ${Math.round(Number($('pose-confidence').dataset.value) * 100)}%`;
+    $('pose-cleanup-status').textContent = 'Re-extract from the original video to apply changes.';
+  }
+  $('viewer-position').textContent = `${viewerIndex + 1} / ${items.length}${viewingPose ? ' · pose' : ''}`;
+  $('viewer-prev').disabled = items.length < 2;
+  $('viewer-next').disabled = items.length < 2;
+  if (!replaceMedia) return;
   $('viewer-media').querySelector('video')?.pause();
-  const item = viewerPin.items[viewerIndex];
   const source = mediaURL(viewerPin, item, true);
   if (item.kind === 'text') {
     const text = document.createElement('div');
@@ -788,9 +830,6 @@ function renderViewer() {
     $('viewer-media').replaceChildren(media);
     if (item.kind === 'video') watchVideo(media, { autoplay: true });
   }
-  $('viewer-position').textContent = `${viewerIndex + 1} / ${viewerPin.items.length}`;
-  $('viewer-prev').disabled = viewerPin.items.length < 2;
-  $('viewer-next').disabled = viewerPin.items.length < 2;
 }
 
 function confirmRemove(message, action) {
@@ -812,10 +851,62 @@ $('remove-pin').onclick = () => confirmRemove('Remove this pin from the collecti
 $('delete-collection').onclick = () => confirmRemove(`Remove “${collection().name}” and all of its pins?`, async () => {
   const removalId = await api.deleteCollection(collectionId); $('settings-dialog').close(); await refresh(); toast('collection removed', removalId);
 });
-$('viewer-prev').onclick = () => { viewerIndex = (viewerIndex + viewerPin.items.length - 1) % viewerPin.items.length; renderViewer(); };
-$('viewer-next').onclick = () => { viewerIndex = (viewerIndex + 1) % viewerPin.items.length; renderViewer(); };
+$('viewer-prev').onclick = () => { const count = viewerPin.items.filter(item => !item.poseFor).length; viewerIndex = (viewerIndex + count - 1) % count; viewingPose = false; renderViewer(); };
+$('viewer-next').onclick = () => { viewerIndex = (viewerIndex + 1) % viewerPin.items.filter(item => !item.poseFor).length; viewingPose = false; renderViewer(); };
 $('open-source').onclick = () => api.openSource(viewerPin.id).catch(toastError);
 $('copy-link').onclick = () => api.copyLink(viewerPin.id).then(() => toast('link copied')).catch(toastError);
+let poseInput = null;
+$('extract-pose').onclick = async () => {
+  const pin = viewerPin, item = pin.items.filter(item => !item.poseFor)[viewerIndex];
+  if (pin.items.some(pose => pose.poseFor === item.id)) { viewingPose = !viewingPose; renderViewer(); return; }
+  const input = { id: pin.id, itemId: item.id };
+  poseInput = input;
+  $('pose-source').textContent = `${pin.title} · video ${viewerIndex + 1}`;
+  $('pose-status').textContent = '';
+  $('pose-setup').textContent = 'Checking installed pose tools…';
+  $('pose-dialog').querySelector('details').open = false;
+  $('start-pose').disabled = true;
+  $('pose-dialog').showModal();
+  try {
+    const setup = await api.poseSetup();
+    if (poseInput !== input || !$('pose-dialog').open) return;
+    const mib = bytes => Math.ceil(bytes / 1024 / 1024);
+    $('pose-setup').textContent = setup.downloadBytes ? `Download: ${mib(setup.downloadBytes)} MiB · internet and 1 GiB free space required.` : 'Ready · no download needed.';
+    $('pose-platform').textContent = `${setup.platform} · ${mib(setup.totalBytes)} MiB installed size${setup.downloadBytes ? ` · ${mib(setup.runtimeBytes)} MiB runtime + ${mib(setup.modelBytes)} MiB models needed` : ''}`;
+    $('start-pose').textContent = setup.downloadBytes ? 'download & extract pose' : 'extract pose';
+    $('start-pose').disabled = false;
+  } catch (error) { if (poseInput === input) $('pose-status').textContent = error.message; }
+};
+$('pose-guide').onclick = () => api.openPoseGuide().catch(toastError);
+$('pose-form').onsubmit = async event => {
+  event.preventDefault();
+  if (!poseInput || $('start-pose').disabled) return;
+  const input = poseInput;
+  $('start-pose').disabled = true;
+  try {
+    const taskId = await api.enqueuePose(input);
+    if (poseInput !== input || !$('pose-dialog').open) { await api.cancelDownload(taskId); return; }
+    $('pose-dialog').close(); $('viewer').close();
+    toast('pose extraction queued · progress in Activity');
+  } catch (error) { if (poseInput === input) $('pose-status').textContent = error.message; else toastError(error); }
+  finally { if (poseInput === input || !poseInput) $('start-pose').disabled = false; }
+};
+$('pose-dialog').addEventListener('close', () => { poseInput = null; });
+$('pose-confidence').onclick = () => {
+  const values = [0.3, 0.5, 0.7], value = values[(values.indexOf(Number($('pose-confidence').dataset.value)) + 1) % values.length];
+  $('pose-confidence').dataset.value = value; $('pose-confidence').textContent = `joint confidence: ${Math.round(value * 100)}%`;
+};
+$('reextract-pose').onclick = async () => {
+  const pin = viewerPin, item = pin.items.filter(item => !item.poseFor)[viewerIndex], button = $('reextract-pose');
+  button.disabled = true;
+  try {
+    const taskId = await api.enqueuePose({ id: pin.id, itemId: item.id, replacePose: true, poseOptions: { personCount: Number($('pose-person-count').value), jointConfidence: Number($('pose-confidence').dataset.value) } });
+    if (!$('viewer').open || viewerPin?.id !== pin.id) { await api.cancelDownload(taskId); return; }
+    $('pose-cleanup-status').textContent = 'Re-extraction queued · progress in Activity. Reopen the pose when it finishes.';
+    toast('pose re-extraction queued');
+  } catch (error) { if (viewerPin?.id === pin.id) $('pose-cleanup-status').textContent = error.message; }
+  finally { button.disabled = false; }
+};
 $('library-folder').onclick = () => api.openFolder(collectionId).catch(toastError);
 
 async function saveCollectionFile(chooseDestination = false) {
@@ -1456,9 +1547,9 @@ $('reset-clip').onclick = () => {
 function renderPinPreviews(reset = false) {
   closeClipEditor();
   for (const video of $('edit-covers').querySelectorAll('video')) { video.pause(); video.removeAttribute('src'); video.load(); }
-  const visual = editingPin.items.filter(item => item.kind !== 'text');
-  const previews = !reset && editingPin.previews || (visual.length ? visual : editingPin.items).map(item => ({ itemId: item.id }));
-  $('edit-covers').innerHTML = editingPin.items.map((item, index) => {
+  const visual = editingPin.items.filter(item => item.kind !== 'text' && !item.poseFor);
+  const previews = !reset && editingPin.previews || (visual.length ? visual : editingPin.items.filter(item => !item.poseFor)).map(item => ({ itemId: item.id }));
+  $('edit-covers').innerHTML = editingPin.items.filter(item => !item.poseFor).map((item, index) => {
     const source = escapeHTML(mediaURL(editingPin, item)), preview = previews.find(preview => preview.itemId === item.id), label = `${item.kind} ${index + 1}`;
     const visual = item.kind === 'video' ? `<button class="preview-visual preview-video" type="button" data-edit-clip aria-label="Edit video ${index + 1} preview" aria-controls="clip-editor" aria-expanded="false"><video src="${source}" preload="metadata" muted playsinline aria-hidden="true"></video><span>edit range</span></button><p class="clip-summary hint"></p>` : `<div class="preview-visual">${item.kind === 'text' ? `<div class="picker-text">${escapeHTML(item.text?.slice(0, 250))}</div>` : `<img src="${source}" alt="Saved image ${index + 1}" loading="lazy">`}</div>`;
     return `<div class="preview-item" data-item-id="${escapeHTML(item.id)}" data-label="${label}"><div class="preview-heading"><label><input class="preview-enabled" type="checkbox" aria-label="Show ${label} in preview" ${preview ? 'checked' : ''}>${label}</label><label><input type="radio" name="edit-cover" value="${escapeHTML(item.id)}" aria-label="Cover item ${index + 1}" ${editingPin.coverId === item.id ? 'checked' : ''}>cover</label></div>${visual}</div>`;
@@ -1547,8 +1638,8 @@ $('export-collection').onclick = async () => {
 };
 
 function clearPrivateViews() {
-  for (const id of ['viewer', 'pin-editor', 'add-dialog']) if ($(id).open) $(id).close();
-  for (const id of ['viewer-title', 'viewer-source', 'viewer-details', 'viewer-media', 'edit-covers', 'media-picker', 'download-announcement', 'toast-message']) $(id).replaceChildren();
+  for (const id of ['pose-dialog', 'viewer', 'pin-editor', 'add-dialog']) if ($(id).open) $(id).close();
+  for (const id of ['pose-source', 'pose-status', 'viewer-title', 'viewer-source', 'viewer-details', 'viewer-media', 'edit-covers', 'media-picker', 'download-announcement', 'toast-message']) $(id).replaceChildren();
   for (const id of ['edit-title', 'edit-tags', 'edit-notes', 'pin-title', 'pin-tags', 'pin-notes', 'link-input']) $(id).value = '';
   viewerPin = editingPin = inspection = pinPreview = null;
   settingsOriginal = null; undoId = null;
@@ -1631,23 +1722,31 @@ $('password-dialog').addEventListener('close', () => {
   $('password-form').reset(); $('password-error').textContent = ''; passwordAction = passwordCollection = passwordReplacementTab = null;
 });
 
-function renderDownloads(tasks, initial = false) {
-  const pending = tasks.filter(task => ['queued', 'running'].includes(task.state)).length;
-  const unfinished = tasks.filter(task => task.state !== 'completed');
+function renderActivity() {
+  const unfinished = [...downloadTasks.filter(task => task.state !== 'completed'), ...(phoneState?.entries || []).filter(entry => entry.state !== 'saved').map(entry => ({ ...entry, fromPhone: true }))]
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const pending = unfinished.filter(task => ['queued', 'running'].includes(task.state)).length;
   $('downloads-toggle').hidden = !unfinished.length;
   $('download-count').textContent = pending || '';
   $('review-downloads').hidden = !unfinished.length;
   if (!unfinished.length) $('downloads-panel').hidePopover();
-  $('download-list').innerHTML = unfinished.length ? [...unfinished].reverse().map(task => `<article class="download" data-state="${escapeHTML(task.state)}" role="listitem">
-    <h2>${escapeHTML(task.title)}</h2><p>${escapeHTML(task.error || (task.state === 'queued' ? 'queued · waiting for the previous task' : task.progress || task.state))}</p>
-    ${task.state === 'running' ? '<progress aria-label="Saving media"></progress>' : ''}
-    <div class="download-actions">${['queued', 'running'].includes(task.state) ? `<button class="text-button" data-task="${task.id}" data-action="cancelDownload">cancel</button>` : `${task.state !== 'completed' ? `<button class="text-button" data-task="${task.id}" data-action="retryDownload">retry</button>` : ''}<button class="text-button" data-task="${task.id}" data-action="dismissDownload">dismiss</button>`}</div></article>`).join('') : '<p class="hint">no downloads</p>';
+  $('download-list').innerHTML = unfinished.length ? unfinished.map(task => `<article class="download" data-state="${escapeHTML(task.state)}" role="listitem">
+    ${task.fromPhone ? '<span class="activity-kind">mobile share</span>' : ''}<h2>${escapeHTML(task.title)}</h2><p>${escapeHTML(task.error || (task.fromPhone && task.locked && task.state === 'queued' ? 'waiting for collection unlock' : task.state === 'queued' ? `queued · waiting for the previous ${task.fromPhone ? 'mobile share' : 'task'}` : task.progress || task.state))}</p>
+    ${task.state === 'running' ? `<progress aria-label="${task.fromPhone ? 'Saving shared link' : 'Background task progress'}"></progress>` : ''}
+    <div class="download-actions">${task.fromPhone ? task.state === 'running' ? '' : `${task.state === 'failed' ? `<button class="text-button" data-task="${escapeHTML(task.id)}" data-action="retryPhoneShare">retry</button>` : ''}<button class="text-button" data-task="${escapeHTML(task.id)}" data-action="dismissPhoneShare">dismiss</button>` : ['queued', 'running'].includes(task.state) ? `<button class="text-button" data-task="${escapeHTML(task.id)}" data-action="cancelDownload">cancel</button>` : `<button class="text-button" data-task="${escapeHTML(task.id)}" data-action="retryDownload">retry</button><button class="text-button" data-task="${escapeHTML(task.id)}" data-action="dismissDownload">dismiss</button>`}</div></article>`).join('') : '<p class="hint">no activity</p>';
+}
+function renderDownloads(tasks, initial = false) {
+  downloadTasks = tasks;
+  renderActivity();
   for (const task of tasks) {
     if (!initial && downloadStates.get(task.id) !== task.state && ['completed', 'failed', 'cancelled'].includes(task.state)) {
       const message = task.state === 'completed' ? `saved · ${task.title}` : `${task.state} · ${task.title}`;
       $('download-announcement').textContent = message;
       toast(message);
-      if (task.state === 'completed') refresh().catch(toastError);
+      if (task.state === 'completed') {
+        if (!poseToolsInstalled) api.poseSetup?.().then(setup => { poseToolsInstalled = setup.downloadBytes === 0; for (const card of $('grid').children) showSlide(card, false); }).catch(() => {});
+        refresh().catch(toastError);
+      }
     }
   }
   downloadStates = new Map(tasks.map(task => [task.id, task.state]));
@@ -1655,7 +1754,7 @@ function renderDownloads(tasks, initial = false) {
 $('review-downloads').onclick = () => { $('collections-dialog').close(); $('downloads-panel').showPopover(); };
 $('download-list').onclick = async event => {
   const button = event.target.closest('[data-task]');
-  if (!button || !['cancelDownload', 'retryDownload', 'dismissDownload'].includes(button.dataset.action)) return;
+  if (!button || !['cancelDownload', 'retryDownload', 'dismissDownload', 'retryPhoneShare', 'dismissPhoneShare'].includes(button.dataset.action)) return;
   button.disabled = true;
   try { await api[button.dataset.action](button.dataset.task); }
   catch (error) { toastError(error); }
@@ -1663,10 +1762,12 @@ $('download-list').onclick = async event => {
 };
 api.onDownloads(tasks => renderDownloads(tasks));
 api.downloads().then(tasks => renderDownloads(tasks, true)).catch(toastError);
+api.poseSetup?.().then(setup => { poseToolsInstalled = setup.downloadBytes === 0; for (const card of $('grid').children) showSlide(card, false); }).catch(() => {});
 refresh().then(() => { if (!collectionId && openCollections().length) switchCollection(openCollections()[0].id); }).catch(toastError);
 
 function renderPhoneInbox(value, initial = false) {
   phoneState = value;
+  renderActivity();
   $('phone-pair').disabled = !value.running;
   $('phone-status').textContent = value.error || (value.running ? `listening · ${value.host}:${value.port}` : 'receiver is off');
   if (!phonePairing || phonePairing.expiresAt !== value.pairingExpiresAt || Date.now() >= phonePairing.expiresAt) {
@@ -1676,7 +1777,9 @@ function renderPhoneInbox(value, initial = false) {
   $('phone-clear').disabled = !value.entries.some(entry => entry.state === 'saved');
   $('phone-entries').innerHTML = value.entries.length ? [...value.entries].reverse().slice(0, 100).map(entry => `<article class="phone-entry" role="listitem"><p>${escapeHTML(entry.title)}</p><p class="hint">${escapeHTML(entry.error || (entry.locked && entry.state === 'queued' ? 'waiting for collection unlock' : entry.progress || entry.state))}</p><div class="button-group">${entry.state === 'failed' ? `<button class="text-button" data-phone-entry="${entry.id}" data-phone-action="retryPhoneShare">retry</button>` : ''}${entry.state !== 'running' ? `<button class="text-button" data-phone-entry="${entry.id}" data-phone-action="dismissPhoneShare">dismiss</button>` : '<progress aria-label="Saving shared link"></progress>'}</div></article>`).join('') : '<p class="hint">no incoming links</p>';
   for (const entry of value.entries) if (!initial && phoneSeen.get(entry.id) !== entry.state && ['saved', 'failed'].includes(entry.state)) {
-    toast(entry.state === 'saved' ? 'saved link from phone' : 'phone share failed · open Receive from phone to retry');
+    const message = entry.state === 'saved' ? 'saved link from phone' : 'phone share failed · open Activity to retry';
+    $('download-announcement').textContent = message;
+    toast(message);
     if (entry.state === 'saved') refresh().catch(toastError);
   }
   phoneSeen = new Map(value.entries.map(entry => [entry.id, entry.state]));

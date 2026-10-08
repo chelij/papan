@@ -1,6 +1,6 @@
 # Third-party software
 
-Papan's desktop code is **GPL-3.0-or-later**. The independently executed extraction/archive helper in `worker/` is **GPL-2.0-only** because it imports gallery-dl. These licenses do not replace the licenses of dependencies.
+Papan's desktop code is **GPL-3.0-or-later**. The independently executed extraction/archive helper in `worker/` is **GPL-2.0-only** because it imports gallery-dl. The separate pose worker is GPL-3.0-or-later and uses the dependencies listed below. These licenses do not replace the licenses of dependencies.
 
 | Component | License | Use and source |
 | --- | --- | --- |
@@ -18,12 +18,15 @@ Papan's desktop code is **GPL-3.0-or-later**. The independently executed extract
 | Sharp | Apache-2.0 | Image processing. [Source](https://github.com/lovell/sharp). |
 | qrcode | MIT | Local phone-pairing QR images. [Source](https://github.com/soldair/node-qrcode). |
 | libvips and its native dependencies | LGPL-2.1-or-later and bundled component licenses | Sharp's dynamically loaded native libraries. [Sources/build scripts](https://github.com/lovell/sharp-libvips), [libvips source](https://github.com/libvips/libvips). |
+| rtmlib / DWPose / YOLOX models | Apache-2.0 | Standalone whole-body extraction. [rtmlib](https://github.com/Tau-J/rtmlib), [DWPose models](https://huggingface.co/yzd-v/DWPose). The optional runtime and models download on first confirmed extraction. Pinned model revision/hashes are in `src/pose.js`; release packaging records the platform runtime hash and size. |
+| ONNX Runtime | MIT | Local CPU inference. [Source](https://github.com/microsoft/onnxruntime). |
+| NumPy / headless OpenCV / tqdm | BSD-3-Clause / Apache-2.0 and native third-party notices / MPL-2.0 and MIT | Pose processing and drawing. Exact versions and bundled notices are in `vendor/pose-source/`. |
 | PyInstaller | GPL-2.0-or-later with bootloader exception | Builds the separate helper. [Source/exception](https://pyinstaller.org/en/stable/license.html). |
 
 ## What each package includes
 
 - Papan's JavaScript source, GPLv3 license, and notice.
-- The helper source and GPLv2 license in `vendor/source/`.
+- The extraction helper source and GPLv2 license in `vendor/source/`; the optional pose worker source and GPLv3 license, dependency source links, distribution hashes, exact versions, and native license notices in `vendor/pose-source/`. The matching standalone runtime is a separate release asset, excluded from the base app.
 - Exact installed Python source distributions, their PyPI SHA-256 checksums, and installed versions in `vendor/source/python-sources.json` and `requirements-installed.txt`.
 - Production npm package versions, source locations, integrity hashes, and license files in `vendor/licenses/`. JavaScript dependencies ship as source, not bundled/minified application code.
 - Electron's runtime notices and the exact FFmpeg/x264/dav1d source archives, licenses, and build configuration.

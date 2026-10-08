@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
-import { access, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
@@ -11,12 +11,13 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import developmentFFmpeg from 'ffmpeg-static';
 import sharp from 'sharp';
+import { mediaLocation } from './collection-files.js';
 
 // Staging files are renamed/removed immediately; cached handles lock them on Windows.
 sharp.cache({ files: 0 });
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundledFFmpeg = path.join(project, 'vendor', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-const ffmpeg = existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg;
+export const ffmpeg = existsSync(bundledFFmpeg) ? bundledFFmpeg : developmentFFmpeg;
 export const MAX_FILE = 512 * 1024 * 1024;
 export const BROWSER_SESSION_MODES = ['', 'auto'];
 const MAX_HTML = 6 * 1024 * 1024;
@@ -234,14 +235,14 @@ async function downloadDirect(item, destination, signal) {
   } catch (error) { await rm(partial, { force: true }); throw error; }
 }
 
-export async function materialize(pin, root, offline, signal, progress = () => {}, browser = '') {
+export async function materialize(pin, root, offline, signal, progress = () => {}, browser = '', localMedia = item => mediaLocation(root, item, true)) {
   if (!BROWSER_SESSION_MODES.includes(browser)) throw new Error('Invalid browser-session mode.');
   const folder = randomUUID();
   const stage = path.join(root, 'staging', folder);
   const destination = path.join(root, 'media', folder);
   await mkdir(stage, { recursive: true, mode: 0o700 });
   try {
-    const media = pin.items.filter(item => item.kind !== 'text');
+    const media = pin.items.filter(item => item.kind !== 'text' && (item.url || item.key));
     let extracted = [];
     if (media.length && pin.engine !== 'page') {
       progress(offline ? 'downloading selected media…' : 'preparing previews…');
@@ -260,7 +261,16 @@ export async function materialize(pin, root, offline, signal, progress = () => {
       signal?.throwIfAborted();
       progress(`saving ${index + 1} of ${pin.items.length}…`);
       if (item.kind === 'text') { items.push({ ...item }); continue; }
-      let file = pin.engine === 'page' ? await downloadDirect(item, path.join(stage, randomUUID()), signal) : extracted.find(result => result.key === item.key)?.file;
+      let file;
+      // Derived media has no remote URL. Preserve it during preview repair and
+      // collection conversion instead of attempting to download the source post.
+      if (!item.url && !item.key) {
+        const source = localMedia(item);
+        if (!source) throw new Error('This local media file is missing.');
+        file = path.join(stage, `${randomUUID()}${typeof source === 'string' ? path.extname(source) : source.ext}`);
+        if (typeof source === 'string') await copyFile(source, file);
+        else await pipeline(Readable.from(source.stream(0, source.size - 1, signal)), createWriteStream(file, { mode: 0o600 }), { signal });
+      } else file = pin.engine === 'page' ? await downloadDirect(item, path.join(stage, randomUUID()), signal) : extracted.find(result => result.key === item.key)?.file;
       if (!file || path.dirname(path.resolve(file)) !== path.resolve(stage)) throw new Error('The extractor returned an invalid media file.');
       if ((await stat(file)).size > MAX_FILE) throw new Error('This media exceeds the 512 MiB limit.');
       let preview;
@@ -293,6 +303,28 @@ export async function materialize(pin, root, offline, signal, progress = () => {
     await rm(stage, { recursive: true, force: true });
     throw error;
   }
+}
+
+export async function preparePoseSegments(file, stage, signal) {
+  const result = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', '-i', file,
+    '-an', '-vf', "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2:flags=bicubic+accurate_rnd,setsar=1,fps=24",
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-bf', '0', '-g', '48', '-sc_threshold', '0',
+    '-f', 'segment', '-segment_time', '2', '-reset_timestamps', '1', path.join(stage, 'source-%05d.mp4')], { signal, timeout: 300000 });
+  if (result.code) throw new Error('Papan could not prepare this saved video for pose extraction.');
+  const segments = (await readdir(stage)).filter(name => /^source-\d{5}\.mp4$/.test(name)).sort();
+  if (!segments.length) throw new Error('This video has no readable frames.');
+  return segments.map(name => path.join(stage, name));
+}
+
+export async function combinePoseSegments(stage, count, signal) {
+  const list = path.join(stage, 'segments.txt'), file = path.join(stage, 'pose.mp4');
+  await writeFile(list, Array.from({ length: count }, (_, index) => `file 'pose-${String(index).padStart(5, '0')}.mp4'`).join('\n'), { mode: 0o600 });
+  const result = await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', '-f', 'concat', '-safe', '1', '-i', list,
+    '-an', '-c:v', 'copy', '-movflags', '+faststart', file], { signal, timeout: 300000 });
+  if (result.code || !(await stat(file)).size || (await stat(file)).size > MAX_FILE) throw new Error('Papan could not save the pose video within the 512 MiB limit.');
+  // Only the finished control video belongs in the library.
+  for (const name of await readdir(stage)) if (name !== 'pose.mp4') await rm(path.join(stage, name), { force: true });
+  return file;
 }
 
 export async function removeMedia(root, folder) {

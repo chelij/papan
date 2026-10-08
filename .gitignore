@@ -4,6 +4,7 @@ artifacts/
 .DS_Store
 *.log
 .venv/
+.venv-pose/
 vendor/
 build/
 __pycache__/

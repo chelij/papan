@@ -1,0 +1,11 @@
+# Headless OpenCV supplies cv2; avoid the duplicate GUI OpenCV packages in rtmlib metadata.
+rtmlib==0.0.16
+numpy==2.4.6
+opencv-python-headless==4.13.0.92
+onnxruntime==1.24.4
+tqdm==4.67.1
+flatbuffers==25.12.19
+packaging==26.3
+protobuf==7.36.2
+sympy==1.14.0
+mpmath==1.3.0

@@ -16,6 +16,8 @@ Good references disappear into browser tabs and download folders. Papan keeps im
 - **Share from Android.** Pair [Papan for Android](https://github.com/chelij/papan-android) over your local network and share links into a chosen collection. Undelivered links stay queued on the phone. [Setup, APK builds, and iPhone Shortcut preparation](docs/mobile-sharing.md).
 - **Browse visually.** Responsive columns align every row. Preview frames use the average media proportions of the collection. Choose saved items for board previews and set separate start/end ranges for each video. All previews share a stable frame; visible videos play silently.
 - **Make it yours.** Rename pins, change covers, move them between collections, and add tags and personal notes. Drag pins onto collection tabs, create destinations while editing, and undo removals after restarting.
+- **Extract poses locally.** Turn saved videos into attached DWPose control videos, clean up people/joint confidence, and reuse them in ComfyUI. The optional CPU tools download only after first-use confirmation.
+- **Follow background work.** Activity combines downloads, pose extraction, and incoming phone shares while you keep collecting.
 - **Find it again.** Search titles, notes, tags, and saved text across unlocked collections, including closed tabs. Narrow results by media type, source, and tag.
 - **Use pins in ComfyUI.** The [Papan ComfyUI extension](https://github.com/chelij/comfyui-papan) opens board files and connects image/video references from one loader node.
 - **Keep collecting while files save.** A background queue shows progress, cancellation, failures, and retry. Successful tasks disappear automatically. Open temporary tabs with Ctrl/Cmd+T; collections are saved only when you add a link.
@@ -40,9 +42,9 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.2.3/Papan-0.2.3-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.2.3/Papan-0.2.3-win32-x64.zip) | Release checks use the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.2.3/Papan-0.2.3-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.0/Papan-0.3.0-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.0/Papan-0.3.0-win32-x64.zip) | Release checks use the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.0/Papan-0.3.0-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
 
 The [board refresh fix run](https://github.com/chelij/papan/actions/runs/37505303426) passed native source and packaged-app checks on all three platforms. The [release workflow](.github/workflows/desktop.yml) gates every new desktop package on native source and packaged-app checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 

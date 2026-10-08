@@ -47,7 +47,7 @@
   </main>
   <footer id="board-footer">
     <p id="end-note" class="end-note"></p>
-    <button id="downloads-toggle" class="quiet-button" popovertarget="downloads-panel" aria-label="Downloads" hidden>downloads <span id="download-count"></span></button>
+    <button id="downloads-toggle" class="quiet-button" popovertarget="downloads-panel" aria-label="Activity" title="Downloads, pose extraction, and mobile shares" hidden>activity <span id="download-count"></span></button>
   </footer>
   <dialog id="phone-dialog" aria-labelledby="phone-title">
     <div class="dialog-top"><h1 id="phone-title">receive from phone</h1><button class="icon-button" data-close="phone-dialog" aria-label="Close phone sharing">×</button></div>
@@ -68,7 +68,7 @@
   <dialog id="collections-dialog" aria-labelledby="collections-title">
     <div class="dialog-top"><h1 id="collections-title">open a collection</h1><button class="icon-button" data-close="collections-dialog" aria-label="Close collection browser">×</button></div>
     <button id="browse-collection" class="quiet-button">browse for a collection…</button>
-    <button id="review-downloads" class="quiet-button" hidden>unfinished downloads…</button>
+    <button id="review-downloads" class="quiet-button" hidden>unfinished activity…</button>
     <p class="hint">Open a .papan list, an encrypted .papan, or a .papan.zip portable copy. Encrypted collections ask for their password to reveal their contents.</p>
     <div class="collection-browser-controls"><select id="collection-browser-scope" aria-label="Collections to show"><option value="recent">recent collections</option><option value="all">all collections</option></select><button id="clear-collection-history" class="text-button" type="button">clear history</button></div>
     <div id="closed-collections"></div>
@@ -159,9 +159,26 @@
   <dialog id="viewer" class="viewer" aria-labelledby="viewer-title">
     <div class="dialog-top"><div><h1 id="viewer-title"></h1><p id="viewer-source" class="hint"></p></div><button class="icon-button" data-close="viewer" aria-label="Close viewer">×</button></div>
     <div id="viewer-media"></div>
+    <div id="pose-controls" class="pose-controls" aria-label="Pose cleanup" hidden>
+      <div class="button-group"><label>people <select id="pose-person-count" aria-label="People to keep" title="Start with the largest visible people and follow their positions."><option value="0">all</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select></label><button id="pose-confidence" class="quiet-button" title="Click to cycle 30%, 50%, and 70%. Higher confidence hides uncertain joints.">joint confidence: 30%</button><button id="reextract-pose" class="primary-button">re-extract pose</button></div>
+      <p id="pose-cleanup-status" class="hint" role="status">Re-extract from the original video to apply changes.</p>
+    </div>
     <div class="viewer-controls"><button id="viewer-prev" class="quiet-button" aria-label="Previous item">←</button><span id="viewer-position" class="hint"></span><button id="viewer-next" class="quiet-button" aria-label="Next item">→</button></div>
     <div id="viewer-details" class="viewer-details"></div>
-    <div class="dialog-footer"><div class="button-group"><button id="edit-pin" class="quiet-button">edit pin</button><button id="remove-pin" class="danger-text">remove pin</button></div><div class="button-group"><button id="copy-link" class="quiet-button">copy link</button><button id="open-source" class="quiet-button">open original ↗</button></div></div>
+    <div class="dialog-footer"><div class="button-group"><button id="edit-pin" class="quiet-button">edit pin</button><button id="extract-pose" class="quiet-button" hidden>extract pose</button><button id="remove-pin" class="danger-text">remove pin</button></div><div class="button-group"><button id="copy-link" class="quiet-button">copy link</button><button id="open-source" class="quiet-button">open original ↗</button></div></div>
+  </dialog>
+
+  <dialog id="pose-dialog" aria-labelledby="pose-title">
+    <div class="dialog-top"><h1 id="pose-title">Extract pose control</h1><button class="icon-button" data-close="pose-dialog" aria-label="Close pose extraction">×</button></div>
+    <form id="pose-form">
+      <p id="pose-source" class="hint"></p>
+      <p>Creates a pose video alongside this pin. Keeps the original audio and collection protection.</p>
+      <p class="hint">Local DWPose · CPU · no ComfyUI or GPU required.</p>
+      <p id="pose-setup" class="hint" role="status"></p>
+      <details class="pose-setup-details"><summary>setup details</summary><p class="hint">Uses DWPose/YOLOX, rtmlib and ONNX Runtime on your CPU. No Python installation is required. Allow 1 GiB free space plus working space for the video. Setup needs internet; later runs work offline. Video frames stay on this computer.</p><p id="pose-platform" class="hint"></p><button id="pose-guide" class="text-button" type="button">about pose detection ↗</button></details>
+      <p id="pose-status" class="hint" role="status"></p>
+      <div class="dialog-footer"><button class="quiet-button" type="button" data-close="pose-dialog">cancel</button><button id="start-pose" class="primary-button" type="submit">extract pose</button></div>
+    </form>
   </dialog>
   <dialog id="pin-editor" aria-labelledby="pin-editor-title">
     <div class="dialog-top"><h1 id="pin-editor-title">edit pin</h1><button class="icon-button" data-close="pin-editor" aria-label="Close pin editor">×</button></div>
@@ -194,8 +211,8 @@
     </form>
   </dialog>
   <aside id="downloads-panel" popover="auto" aria-labelledby="downloads-title">
-    <div class="dialog-top"><h1 id="downloads-title">downloads</h1><button class="icon-button" popovertarget="downloads-panel" popovertargetaction="hide" aria-label="Close downloads">×</button></div>
-    <p class="hint">Keep collecting while files save. Interrupted tasks can be retried after reopening Papan.</p>
+    <div class="dialog-top"><h1 id="downloads-title">activity</h1><button class="icon-button" popovertarget="downloads-panel" popovertargetaction="hide" aria-label="Close activity">×</button></div>
+    <p class="hint">Downloads, pose extraction, and links from your phone. Keep collecting while tasks run.</p>
     <div id="download-list" role="list"></div>
     <p id="download-announcement" class="visually-hidden" role="status"></p>
   </aside>

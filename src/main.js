@@ -12,6 +12,8 @@ import { isVault, vaultHeader } from './vault.js';
 import { fileResponse } from './file-response.js';
 import { openPhoneReceiver } from './phone-receiver.js';
 import { savePhoneLink } from './phone-save.js';
+import { poseSource, savePosePin } from './pose-pin.js';
+import { POSE_GUIDE, poseSetup } from './pose.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName('Papan');
@@ -21,6 +23,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'papan', privileges: { standard:
 const inspections = new Map(), jobs = new Map();
 let library, window, downloads, phoneReceiver, protectionBusy = false;
 let browserSession = 'auto', browserSessionWrites = Promise.resolve();
+const localMedia = item => library.protection.media(item, true) || mediaLocation(library.root, item, true);
 
 async function changeLibrary(operation, saveId = null) {
   const restorations = [];
@@ -153,7 +156,7 @@ async function savePin({ pin }, signal, progress) {
   if (!target) throw new Error('The destination collection was removed.');
   library.requireUnlocked(target.id);
   if (snapshot.pins.some(item => item.collectionId === pin.collectionId && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in this collection.');
-  const saved = await materialize(pin, library.root, target.settings.mode === 'offline', signal, progress, browserSession);
+  const saved = await materialize(pin, library.root, target.settings.mode === 'offline', signal, progress, browserSession, localMedia);
   try {
     return await changeLibrary(draft => {
       signal?.throwIfAborted();
@@ -177,7 +180,7 @@ async function updateCollection(input, signal, progress = () => {}) {
     const pins = settings.mode === 'offline' ? snapshot.pins.filter(pin => pin.collectionId === input.id && !pin.offline) : [];
     for (const [index, pin] of pins.entries()) {
       progress(`downloading originals · pin ${index + 1} of ${pins.length}`);
-      converted.push(await materialize(pin, library.root, true, signal, message => progress(`pin ${index + 1} of ${pins.length} · ${message}`), browserSession));
+      converted.push(await materialize(pin, library.root, true, signal, message => progress(`pin ${index + 1} of ${pins.length} · ${message}`), browserSession, localMedia));
     }
     return await changeLibrary(draft => {
       signal?.throwIfAborted();
@@ -199,12 +202,13 @@ async function updateCollection(input, signal, progress = () => {}) {
 }
 
 async function updatePin(input, signal, progress) {
+  if (input.extractPose === true) return savePosePin(input, { library, changeLibrary }, signal, progress);
   if (input.repairPreviews) {
     const pin = library.snapshot().pins.find(pin => pin.id === input.id);
     if (!pin) throw new Error('Pin not found.');
     library.requireUnlocked(pin.collectionId);
     if (!pin.items.some(item => item.kind === 'video' && item.previewVersion !== 1)) return { pin, collectionId: pin.collectionId };
-    const saved = await materialize(pin, library.root, pin.offline, signal, progress, browserSession);
+    const saved = await materialize(pin, library.root, pin.offline, signal, progress, browserSession, localMedia);
     try {
       return await changeLibrary(draft => {
         signal?.throwIfAborted();
@@ -221,12 +225,12 @@ async function updatePin(input, signal, progress) {
   const pin = snapshot.pins.find(pin => pin.id === input.id), target = snapshot.collections.find(item => item.id === input.collectionId);
   if (!pin || !target) throw new Error('The pin or collection no longer exists.');
   library.requireUnlocked(pin.collectionId); library.requireUnlocked(target.id);
-  if (!pin.items.some(item => item.id === input.coverId)) throw new Error('Choose a cover from this pin.');
+  if (!pin.items.some(item => item.id === input.coverId && !item.poseFor)) throw new Error('Choose a cover from this pin’s original media.');
   const previews = pinPreviews(input.previews === undefined ? pin.previews : input.previews, pin.items, input.coverId);
   if (snapshot.pins.some(item => item.id !== pin.id && item.collectionId === target.id && item.sourceUrl === pin.sourceUrl)) throw new Error('This link is already in the destination collection.');
   let saved;
   try {
-    if (target.settings.mode === 'offline' && !pin.offline) saved = await materialize(pin, library.root, true, signal, progress, browserSession);
+    if (target.settings.mode === 'offline' && !pin.offline) saved = await materialize(pin, library.root, true, signal, progress, browserSession, localMedia);
     return await changeLibrary(draft => {
       signal?.throwIfAborted();
       const current = draft.pins.find(item => item.id === pin.id), destination = draft.collections.find(item => item.id === target.id);
@@ -348,6 +352,15 @@ function installHandlers() {
     }
   });
   handle('downloads', () => downloads.snapshot());
+  handle('pose-guide', () => shell.openExternal(POSE_GUIDE));
+  handle('pose-setup', () => poseSetup(path.join(library.root, 'pose-models')));
+  handle('enqueue-pose', async input => {
+    const { pin, item, options } = poseSource(library, input), existing = pin.items.find(value => value.poseFor === item.id);
+    if (input.replacePose && !existing) throw new Error('The pose attachment changed. Reopen its source video and try again.');
+    const payload = { id: pin.id, itemId: item.id, collectionId: pin.collectionId, poseItemId: input.replacePose ? existing.id : randomUUID(), poseOptions: options,
+      ...(input.replacePose ? { replacePose: true, poseTaskId: randomUUID() } : {}), extractPose: true };
+    return downloads.add('pin', payload, `${input.replacePose ? 'Re-extract' : 'Extract'} pose · ${pin.title}`);
+  });
   handle('cancel-download', id => downloads.cancel(id));
   handle('retry-download', id => downloads.retry(id));
   handle('dismiss-download', id => downloads.dismiss(id));
@@ -517,17 +530,22 @@ function installHandlers() {
   handle('open-folder', id => { const file = library.snapshot().collections.find(item => item.id === id)?.destination; return shell.openPath(file ? path.dirname(file) : library.root); });
 }
 
-async function collectUnusedMedia() {
+export async function collectUnusedMedia(target = library) {
   // Keep media referenced by the previous atomic snapshot as a practical recovery path.
   const { readdir } = await import('node:fs/promises');
-  const used = new Set([...(library.snapshot().retainedMedia || []), ...library.snapshot().pins.map(pin => pin.folder), ...(library.snapshot().trash || []).flatMap(item => item.pins.map(({ pin }) => pin.folder))]);
+  const snapshots = [target.snapshot()];
   try {
-    const previous = JSON.parse(await readFile(path.join(library.root, 'library.previous.json'), 'utf8'));
-    for (const pin of previous.pins || []) used.add(pin.folder);
-    for (const folder of previous.retainedMedia || []) used.add(folder);
-    for (const entry of previous.trash || []) for (const { pin } of entry.pins) used.add(pin.folder);
+    snapshots.push(JSON.parse(await readFile(path.join(target.root, 'library.previous.json'), 'utf8')));
   } catch (error) { if (error.code !== 'ENOENT') return; }
-  for (const folder of await readdir(path.join(library.root, 'media'))) if (!used.has(folder)) await removeMedia(library.root, folder);
+  const used = new Set(snapshots.flatMap(snapshot => snapshot.retainedMedia || []));
+  for (const snapshot of snapshots) for (const pin of [...snapshot.pins, ...(snapshot.trash || []).flatMap(entry => entry.pins.map(({ pin }) => pin))]) {
+    used.add(pin.folder);
+    for (const item of pin.items) for (const original of [false, true]) {
+      const file = mediaLocation(target.root, item, original);
+      if (file && path.dirname(path.dirname(file)) === path.join(target.root, 'media')) used.add(path.basename(path.dirname(file)));
+    }
+  }
+  for (const folder of await readdir(path.join(target.root, 'media'))) if (!used.has(folder)) await removeMedia(target.root, folder);
 }
 
 async function createWindow() {
