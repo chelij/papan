@@ -21,11 +21,11 @@ test('pin metadata validates bounded notes/tags and legacy click settings remain
 
 test('download queue persists failures, cancels active work, retries, and recovers interrupted tasks without automatic network activity', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'papan-queue-'));
-  let attempts = 0, interrupted;
+  let attempts = 0, interrupted, slowStarted = false;
   const queue = await openDownloadQueue(root, async (_kind, payload, signal) => {
     attempts++;
     if (payload.id === 'failure' && attempts === 1) throw new Error('source unavailable');
-    if (payload.id === 'slow') await new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }); });
+    if (payload.id === 'slow') await new Promise((resolve, reject) => { signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }); slowStarted = true; });
     return { collectionId: payload.id };
   });
   try {
@@ -37,7 +37,7 @@ test('download queue persists failures, cancels active work, retries, and recove
     await until(async () => JSON.parse(await readFile(path.join(root, 'downloads.json'))).length === 0);
     assert.equal(attempts, 2);
     const slow = await queue.add('collection', { id: 'slow' }, 'cancel me');
-    await until(async () => { interrupted = JSON.parse(await readFile(path.join(root, 'downloads.json'))); return interrupted.at(-1).state === 'running'; });
+    await until(async () => { interrupted = JSON.parse(await readFile(path.join(root, 'downloads.json'))); return slowStarted && interrupted.at(-1).state === 'running'; });
     await queue.cancel(slow);
     await until(() => queue.snapshot().at(-1).state === 'cancelled');
     await queue.dismiss(slow);
@@ -48,6 +48,23 @@ test('download queue persists failures, cancels active work, retries, and recove
     assert.equal(recovered.snapshot().at(-1).state, 'failed');
     assert.match(recovered.snapshot().at(-1).error, /Interrupted/);
     recovered.stop();
+  } finally { queue.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('download queue does not start work cancelled while publishing its persisted running status', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-queue-start-'));
+  let queue, runs = 0, finish;
+  const settled = new Promise(resolve => { finish = resolve; });
+  queue = await openDownloadQueue(root, async () => { runs++; return {}; }, tasks => {
+    const task = tasks[0];
+    if (task?.state === 'running') void queue.cancel(task.id);
+    if (['cancelled', 'completed'].includes(task?.state)) finish(task.state);
+  });
+  try {
+    await queue.add('collection', { id: 'cancel-before-start' }, 'cancel before starting');
+    assert.equal(await settled, 'cancelled');
+    assert.equal(runs, 0);
+    assert.equal(JSON.parse(await readFile(path.join(root, 'downloads.json')))[0].state, 'cancelled');
   } finally { queue.stop(); await rm(root, { recursive: true, force: true }); }
 });
 

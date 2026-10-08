@@ -46,7 +46,7 @@ The [main preflight](https://github.com/chelij/papan/actions/runs/37814199315) a
 
 ### Desktop v0.3.1 compatibility
 
-The v0.3.1 webpage-discovery patch uses the existing inspector for desktop and Android links, including cookie-session fallback under the current Privacy preference. Receiver protocol, ordinary/portable/encrypted containers and pose-attachment metadata are unchanged from v0.3.0. Existing Android v0.2.0 and ComfyUI v0.1.3 contract evidence is retained; no companion update or new release-pair claim is required. Local checks pass all 54 unit tests, native cookie-gated/dynamic discovery and authenticated cancellation cleanup, and the reported Reddit gallery's 13 original photos through an existing session. The user confirmed the installed patch works. Browser-bound verification and click/blob-only media remain limits. Publication and platform evidence will be recorded after the release workflow completes.
+The v0.3.1 webpage-discovery patch uses the existing inspector for desktop and Android links, including cookie-session fallback under the current Privacy preference. Receiver protocol, ordinary/portable/encrypted containers and pose-attachment metadata are unchanged from v0.3.0. Existing Android v0.2.0 and ComfyUI v0.1.3 contract evidence is retained; no companion update or new release-pair claim is required. Local checks pass all 55 unit tests, native cookie-gated/dynamic discovery and authenticated cancellation cleanup, and the reported Reddit gallery's 13 original photos through an existing session. The user confirmed the installed patch works. Browser-bound verification and click/blob-only media remain limits. Publication and platform evidence will be recorded after the release workflow completes.
 
 ### Pose extraction in v0.3.0
 

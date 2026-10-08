@@ -39,6 +39,7 @@ export async function openDownloadQueue(root, run, publish = () => {}, codec = {
     task.state = 'running'; task.progress = 'starting…'; task.error = '';
     try {
       await persist(); publish(snapshot());
+      controller.signal.throwIfAborted();
       task.result = await run(task.kind, structuredClone(task.payload), controller.signal, message => {
         task.progress = String(message).slice(0, 300); publish(snapshot());
       });
