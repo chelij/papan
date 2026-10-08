@@ -46,7 +46,7 @@ Download the archive for your operating system from [Releases](https://github.co
 | [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.1/Papan-0.3.1-win32-x64.zip) | Release checks use the native Windows runner. |
 | [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.1/Papan-0.3.1-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
 
-The [v0.3.0 release run](https://github.com/chelij/papan/actions/runs/37815580751) passed native source and packaged-app checks on all three platforms. The [release workflow](.github/workflows/desktop.yml) gates every new desktop package on native source and packaged-app checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
+The [v0.3.1 release run](https://github.com/chelij/papan/actions/runs/37835810339) passed native source and packaged-app checks on all three platforms, plus Linux webpage discovery and renderer checks. The [release workflow](.github/workflows/desktop.yml) gates every new desktop package on native source and packaged-app checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
 ## Run from source
 

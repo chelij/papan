@@ -92,7 +92,7 @@ Set `PAPAN_EXECUTABLE` to the packaged executable and rerun `test:desktop` and `
 
 ## Releases
 
-The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform and all ten isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
+The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform, native headless page discovery on Linux, and all ten isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
 
 Before tagging, update `package.json`, the lockfile, the README's versioned download links, and [release notes](release-notes.md), then inspect the passing main-branch run. Signed installers, macOS notarization, and an updater are not implemented. Keep platform claims tied to recorded runner evidence.
 
