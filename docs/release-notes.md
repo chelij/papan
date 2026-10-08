@@ -13,4 +13,6 @@ All 55 unit tests and native headless discovery checks pass locally, including c
 
 Collection formats, pose attachments, and receiver protocol remain unchanged. Existing Android v0.2.0 and ComfyUI v0.1.3 contract evidence remains valid; this release does not establish a new published release-pair check. Browser storage, extensions, and fingerprint are not copied, so some verification challenges, interactive galleries, or browser-only streams may still prevent collection. Windows/macOS pose inference remains unverified. Desktop builds are unsigned; Windows signing and macOS notarization are not configured.
 
+The [main preflight](https://github.com/chelij/papan/actions/runs/37834500313) and [tagged release](https://github.com/chelij/papan/actions/runs/37835810339) passed on all three platforms. All twelve public assets are present, and their six payload hashes match the published checksum files and GitHub upload digests. [Release evidence](https://github.com/chelij/papan/blob/main/docs/verification.md#v031-release).
+
 Desktop and pose-worker code are GPL-3.0-or-later; the separate extraction helper is GPL-2.0-only. Packages retain dependency notices and corresponding Python/FFmpeg/x264/dav1d sources. The separately downloaded models are Apache-2.0. [Third-party notices](https://github.com/chelij/papan/blob/v0.3.1/THIRD-PARTY.md).
