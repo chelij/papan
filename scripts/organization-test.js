@@ -45,7 +45,7 @@ try {
   await expect(page.locator('.pin')).toHaveCount(1);
   const first = (await library()).pins[0];
   const sourceId = first.collectionId;
-  await page.getByLabel('Details for Collected colors', { exact: true }).click();
+  await page.getByRole('button', { name: 'Collected colors', exact: true }).click();
   await page.getByRole('button', { name: 'edit pin', exact: true }).click();
   await page.locator('#edit-collection').selectOption('');
   await page.getByLabel('name', { exact: true }).fill('design notes');
@@ -78,7 +78,7 @@ try {
   await expect(page.locator('.tile-collection')).toHaveText('design notes');
   await page.screenshot({ path: 'artifacts/global-search.png' });
   await page.locator('#search').press('Escape');
-  await page.getByLabel('Details for Color studies', { exact: true }).click();
+  await page.getByRole('button', { name: 'Color studies', exact: true }).click();
   await expect(page.locator('#viewer-details')).toContainText('Warm shapes');
   await page.getByRole('button', { name: 'remove pin', exact: true }).click();
   await page.getByRole('button', { name: 'remove', exact: true }).click();
@@ -126,7 +126,7 @@ try {
 
   // A move to an offline collection downloads originals before it commits.
   await page.getByRole('tab', { name: 'design notes', exact: true }).click();
-  await page.getByLabel('Details for Color studies', { exact: true }).click();
+  await page.getByRole('button', { name: 'Color studies', exact: true }).click();
   await page.getByRole('button', { name: 'edit pin', exact: true }).click();
   await page.locator('#edit-collection').selectOption('');
   await page.getByLabel('name', { exact: true }).fill('offline poster');

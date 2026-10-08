@@ -91,9 +91,27 @@ try {
 
   await page.keyboard.press('Control+t'); await expect(tabs).toHaveCount(2); await paste('not a link'); await expect(page.locator('#add-dialog')).toBeHidden();
   failInspection = true; await paste('https://example.com/failed'); await expect(page.locator('#add-error')).toContainText('Could not inspect'); await page.keyboard.press('Escape');
-  await paste('https://example.com/cancelled'); await expect(page.locator('#inspection')).toBeVisible(); await page.keyboard.press('Escape');
+  const cancellations = calls.filter(call => call.method === 'cancel').length;
+  await page.evaluate(() => {
+    const dialog = document.getElementById('add-dialog'), inspect = window.papan.inspect;
+    let releaseClosed;
+    window.papan.inspect = input => input.url.endsWith('/closing-request')
+      ? new Promise(resolve => { releaseClosed = () => resolve(inspect(input)); })
+      : new Promise(resolve => dialog.addEventListener('close', () => {
+        window.papan.inspect = inspect; releaseClosed(); resolve(inspect(input));
+      }, { once: true }));
+    const paste = url => {
+      const data = new DataTransfer(); data.setData('text/plain', url);
+      document.body.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: data }));
+    };
+    paste('https://example.com/closing-request'); dialog.close(); paste('https://example.com/cancelled');
+  });
+  await expect(page.locator('#inspection')).toBeVisible();
+  await expect(page.locator('#link-input')).toHaveValue('https://example.com/cancelled');
+  assert.equal(calls.filter(call => call.method === 'cancel').length, cancellations + 1);
+  await page.keyboard.press('Escape');
   assert.equal(await stored(), original); await page.reload(); await expect(tabs).toHaveCount(1); assert.equal(await stored(), original);
-  checks.push('invalid links, failed inspections, cancelled pastes, and restarting with unused tabs create no collection');
+  checks.push('invalid links, failed inspections, rapid dialog reopening, cancelled pastes, and restarting with unused tabs create no collection');
 
   await page.keyboard.press('Control+t'); const pendingId = await selected.getAttribute('data-collection-id');
   await page.keyboard.press('Control+t'); const otherBlank = await selected.getAttribute('data-collection-id');

@@ -145,12 +145,12 @@ try {
   await browse(file);
   await expect(page.locator('.pin')).toHaveCount(2);
   assert.deepEqual(await readdir(path.join(secondData, 'library/media')), []);
-  await page.getByRole('button', { name: 'Details for A full video, then an image', exact: true }).click();
+  await page.getByRole('button', { name: 'A full video, then an image', exact: true }).click();
   await page.waitForFunction(() => { const video = document.querySelector('#viewer-media video'); return video?.videoWidth === 1280 && video.currentTime > .1 && !video.paused; });
   await page.getByRole('button', { name: 'Next item', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#viewer-media img')?.naturalWidth > 0);
   await page.getByRole('button', { name: 'Close viewer', exact: true }).click();
-  await page.getByRole('button', { name: 'Details for A place for curiosity', exact: true }).click();
+  await page.getByRole('button', { name: 'A place for curiosity', exact: true }).click();
   await expect(page.locator('.article-body')).toContainText('A quiet place');
   await page.getByRole('button', { name: 'Close viewer', exact: true }).click();
   // Open the browser in the same turn, before the asynchronous tab close completes.
