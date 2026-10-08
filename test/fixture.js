@@ -15,11 +15,33 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
     }
   }
   const wideImage = await sharp({ create: { width: 3200, height: 1600, channels: 3, background: '#c99375' } }).png().toBuffer();
+  const jpeg = await sharp(wideImage).jpeg().toBuffer();
   const frames = await Promise.all(['red', 'blue'].map(background => sharp({ create: { width: 32, height: 24, channels: 3, background } }).png().toBuffer()));
   const animation = await sharp(frames, { join: { animated: true } }).gif({ delay: [100, 200] }).toBuffer();
   const paragraphs = 'A quiet place to keep the things that catch your eye. Collections are personal records of curiosity, saved one image or story at a time. '.repeat(12);
+  const sessionChecks = { anonymous: 0, authenticated: 0, foreignCookies: 0, wrongPathCookies: 0, expiredCookies: 0 };
   const server = http.createServer(async (request, response) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname.startsWith('/session-')) {
+      if (request.headers.cookie?.includes('path_only=')) sessionChecks.wrongPathCookies++;
+      if (request.headers.cookie?.includes('expired=')) sessionChecks.expiredCookies++;
+      if (pathname === '/session-foreign.jpg') {
+        if (request.headers.cookie) sessionChecks.foreignCookies++;
+        response.writeHead(200, { 'Content-Type': 'image/jpeg' }); response.end(jpeg); return;
+      }
+      if (!request.headers.cookie?.split('; ').includes('session=fixture-session')) {
+        sessionChecks.anonymous++;
+        response.writeHead(403, { 'Content-Type': 'text/html' }); response.end('<title>Prove your humanity</title>'); return;
+      }
+      sessionChecks.authenticated++;
+      if (pathname === '/session-page') {
+        response.writeHead(200, { 'Content-Type': 'text/html' });
+        response.end('<title>Browser session gallery</title><main><img src="/session-photo.jpg"><img src="/session-redirect.jpg"></main>');
+      } else if (pathname === '/session-redirect.jpg') {
+        response.writeHead(302, { Location: `http://localhost:${server.address().port}/session-foreign.jpg` }); response.end();
+      } else { response.writeHead(200, { 'Content-Type': 'image/jpeg' }); response.end(jpeg); }
+      return;
+    }
     const ratio = pathname.match(/^\/ratio-(\d+)-(\d+)\.svg$/);
     if (ratio) {
       const width = Number(ratio[1]) * 120, height = Number(ratio[2]) * 120;
@@ -30,6 +52,20 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
       const [width, height] = color === 'red' ? [600, 1200] : color === 'blue' ? [2400, 1200] : [600, 600];
       response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
       response.end(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${color}"/><circle cx="300" cy="250" r="160" fill="#eee" opacity=".3"/><path d="M0 600L250 230L600 600" fill="#111" opacity=".5"/></svg>`);
+    } else if (pathname === '/photo.jpg') {
+      response.writeHead(200, { 'Content-Type': 'image/jpeg' }); response.end(jpeg);
+    } else if (pathname === '/dynamic.js') {
+      response.writeHead(200, { 'Content-Type': 'text/javascript' });
+      response.end(`fetch('/dynamic-media' + location.search).then(response => response.json()).then(data => {
+        document.title = 'Loaded reference';
+        const media = document.createElement(data.kind === 'video' ? 'video' : 'img');
+        media.src = data.url; media.setAttribute('alt', 'Loaded reference');
+        document.querySelector('main').append(media);
+      });`);
+    } else if (pathname === '/dynamic-media') {
+      await new Promise(resolve => setTimeout(resolve, 1800));
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(request.url.includes('video') ? { kind: 'video', url: '/portrait.mp4' } : { kind: 'image', url: '/photo.jpg' }));
     } else if (pathname === '/wide.png' || pathname === '/animated.gif') {
       response.writeHead(200, { 'Content-Type': pathname.endsWith('.png') ? 'image/png' : 'image/gif' });
       response.end(pathname.endsWith('.png') ? wideImage : animation);
@@ -48,6 +84,8 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
     else {
       response.writeHead(200, { 'Content-Type': 'text/html' });
       if (pathname === '/album') response.end(`<html><head><title>Collected colors</title></head><body><article><h1>Collected colors</h1><img src="/red.svg"><img src="/blue.svg"><img src="/green.svg"></article></body></html>`);
+      else if (pathname === '/dynamic') response.end(`<html><head><title>App shell</title><script src="/dynamic.js" defer></script></head><body><article><img src="/advert.jpg"></article><main><p>${paragraphs}</p><img src="/red.svg" width="50"><img src="/blue.svg" hidden></main></body></html>`);
+      else if (pathname === '/carousel') response.end('<html><title>Image gallery</title><script>document.title = "Image gallery";</script><main><figure><img src="/photo.jpg" srcset="/photo.jpg 320w, /wide.png 1600w"><img src="/green.svg" style="visibility:hidden"><div style="display:none"><img src="/blue.svg"></div><img src="/red.svg" hidden></figure></main></html>');
       else if (pathname === '/video') response.end('<html><title>A little motion</title><main><video src="/clip.mp4"></video></main></html>');
       else if (pathname === '/mixed') response.end('<html><title>A full video, then an image</title><main><video src="/clip.mp4"></video><img src="/red.svg"></main></html>');
       else if (pathname === '/article') response.end(`<html><title>A place for curiosity</title><article><h1>A place for curiosity</h1><p>${paragraphs}</p></article></html>`);
@@ -55,5 +93,5 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  return { url: `http://127.0.0.1:${server.address().port}`, close: async () => { await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); await rm(dir, { recursive: true, force: true }); } };
+  return { url: `http://127.0.0.1:${server.address().port}`, sessionChecks, close: async () => { await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); await rm(dir, { recursive: true, force: true }); } };
 }

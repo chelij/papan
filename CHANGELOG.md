@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.1 — 2026-10-09
+
+Changes since [v0.3.0](https://github.com/chelij/papan/releases/tag/v0.3.0).
+
+### Fixed
+
+- Discover media added by JavaScript pages in a temporary hidden browser, including lazy and responsive images, hidden gallery slides, and lightbox originals. Keep direct media and ordinary static pages on their existing fast path.
+- Collect the selected Reddit post's original gallery photos in current and classic layouts, excluding sidebar images, adverts, comments, and duplicate previews. Preserve its title, author, and short text.
+- Retry failed webpage discovery and media downloads with the linked site's existing browser cookies when **use browser sessions** is enabled. Keep public access first, scope cookies to the site and matching paths, recalculate cookies after redirects, and clear temporary sessions on completion or cancellation.
+- Report human-verification pages instead of saving them as text pins, with guidance to complete verification in the browser and retry.
+
+### Compatibility and checks
+
+- Collection formats, pose attachments, and receiver protocol remain unchanged. Android shares use the same improved desktop inspector. Existing Android v0.2.0 and ComfyUI v0.1.3 contract evidence remains valid; this patch does not establish a new published release-pair check.
+- All 54 unit tests pass. Native headless Electron checks cover dynamic media, decoded downloads, cookie-gated galleries with a synthetic Firefox profile, public-first/off behavior, redirect scoping, and authenticated cancellation cleanup. The supplied Reddit post also passes with an existing browser session and all 13 original photos; the user confirmed the installed fix works.
+- Browser cookies cannot guarantee access through every verification challenge, browser-only stream, or interactive gallery. Existing browser storage, extensions, and fingerprint are not copied.
+
 ## 0.3.0 — 2026-10-09
 
 Changes since [v0.2.3](https://github.com/chelij/papan/releases/tag/v0.2.3).

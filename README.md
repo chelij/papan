@@ -12,7 +12,7 @@ Good references disappear into browser tabs and download folders. Papan keeps im
 
 ## What you can do
 
-- **Paste to collect.** Choose individual media, a cover, and a destination collection. Public X posts, YouTube videos, Instagram posts, direct media, and accessible articles use dedicated extraction paths.
+- **Paste to collect.** Choose individual media, a cover, and a destination collection. Collect X posts, YouTube videos, Instagram posts, Reddit galleries, direct media, and accessible articles. Webpage discovery also finds media added by JavaScript.
 - **Share from Android.** Pair [Papan for Android](https://github.com/chelij/papan-android) over your local network and share links into a chosen collection. Undelivered links stay queued on the phone. [Setup, APK builds, and iPhone Shortcut preparation](docs/mobile-sharing.md).
 - **Browse visually.** Responsive columns align every row. Preview frames use the average media proportions of the collection. Choose saved items for board previews and set separate start/end ranges for each video. All previews share a stable frame; visible videos play silently.
 - **Make it yours.** Rename pins, change covers, move them between collections, and add tags and personal notes. Drag pins onto collection tabs, create destinations while editing, and undo removals after restarting.
@@ -42,9 +42,9 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.0/Papan-0.3.0-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.0/Papan-0.3.0-win32-x64.zip) | Release checks use the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.0/Papan-0.3.0-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.1/Papan-0.3.1-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.1/Papan-0.3.1-win32-x64.zip) | Release checks use the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.1/Papan-0.3.1-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
 
 The [v0.3.0 release run](https://github.com/chelij/papan/actions/runs/37815580751) passed native source and packaged-app checks on all three platforms. The [release workflow](.github/workflows/desktop.yml) gates every new desktop package on native source and packaged-app checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
@@ -70,6 +70,6 @@ The interesting tradeoffs are local ownership, recoverable writes, responsive br
 
 ## Limits and license
 
-Papan collects individual posts and pages. It tries public extraction first, then automatically finds an existing desktop browser login for X, Instagram, or YouTube if needed. You can disable browser sessions in Privacy settings; cookies are never saved in Papan or shared with a phone. Some platforms still block extraction, and a successful preview does not guarantee a download. Profiles, feeds, live streams, and cloud sync are outside the current scope. Saved previews can be viewed without the source, but silent video previews are not original downloads.
+Papan collects individual posts and pages. It tries public extraction first, then retries supported extractors and webpage discovery with the linked site's existing desktop browser cookies if needed. You can disable browser sessions in Privacy settings; cookies are never saved in Papan or shared with a phone. Some platforms still block extraction, and a successful preview does not guarantee a download. Profiles, feeds, live streams, and cloud sync are outside the current scope. Saved previews can be viewed without the source, but silent video previews are not original downloads.
 
 Desktop code: **[GPL-3.0-or-later](LICENSE)**. The separate extraction helper is **[GPL-2.0-only](worker/LICENSE)**. Copyleft dependencies make an MIT-only distribution inappropriate for this build. Dependency licenses, source archives, and notices are described in [THIRD-PARTY.md](THIRD-PARTY.md).

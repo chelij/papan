@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           export PAPAN_CHROMIUM="$(command -v google-chrome)"
-          for suite in previews pose playback visibility slideshow protection settings scroll tabs history; do
+          for suite in discovery previews pose playback visibility slideshow protection settings scroll tabs history; do
             npm run "test:$suite"
           done
       - name: Desktop workflows (Linux)
