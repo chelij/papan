@@ -32,7 +32,7 @@ try {
   page.on('request', request => { if (request.url() === green.url) greenRequests++; });
   await page.route(blue.url, async route => { blueRequests++; await blueGate; await route.continue(); });
   await page.exposeFunction('readSlideshowLibrary', () => structuredClone(state));
-  await page.addInitScript(() => { window.papan = { library: () => window.readSlideshowLibrary(), downloads: async () => [], onDownloads() {}, onProgress() {}, tools: async () => ({}) }; });
+  await page.addInitScript(() => { window.papan = { library: () => window.readSlideshowLibrary(), downloads: async () => [], onDownloads() {}, onProgress() {}, tools: async () => ({}), poseSetup: async () => ({ downloadBytes: 0 }) }; });
   await page.goto(pathToFileURL(path.resolve('src/renderer/index.html')).href);
   const image = page.locator('.tile-media img');
   const readyImage = async source => {
@@ -97,7 +97,7 @@ try {
   await readyImage(red.url);
   checks.push('switching collections cancels a pending slide without reviving a removed card');
 
-  pin.items = [video, blue, green]; pin.coverId = video.id;
+  pin.items = [video, blue, green, { ...video, id: randomUUID(), poseFor: video.id }]; pin.coverId = video.id;
   pin.previews = [{ itemId: video.id, start: 0, end: .5 }, { itemId: blue.id }, { itemId: green.id }];
   blueGate = new Promise(resolve => { releaseBlue = resolve; });
   const beforeVideo = blueRequests, beforeGreen = greenRequests;
@@ -106,8 +106,13 @@ try {
   await page.waitForTimeout(1300);
   await expect(page.locator('.tile-media video')).toHaveCount(1);
   assert.equal(await page.locator('.tile-media video').evaluate(video => video.paused), true);
+  await expect(page.locator('.pin-pose')).toHaveAttribute('title', 'view pose');
+  assert.equal(await page.locator('.pose-indicator').evaluate(badge => badge.hidden), false, 'pose controls still describe the retained video while the image loads');
   assert.equal(greenRequests, beforeGreen, 'video pause/timeupdate events cannot skip the pending image');
-  releaseBlue(); await readyImage(blue.url); await readyImage(green.url);
+  releaseBlue(); await readyImage(blue.url);
+  await expect(page.locator('.pin-pose')).toBeHidden();
+  await expect(page.locator('.pose-indicator')).toBeHidden();
+  await readyImage(green.url);
   checks.push('video clip endings wait for the next image and preserve mixed-media slide order');
 
   pin.items = [red, video, green]; pin.coverId = red.id;

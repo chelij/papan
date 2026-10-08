@@ -39,7 +39,7 @@ export function pinPreviews(input, items, coverId) {
   const selected = new Set();
   const previews = input.map(preview => {
     const item = items.find(item => item.id === preview?.itemId);
-    if (!item || selected.has(item.id)) throw new Error('Choose each preview from the pin’s saved media once.');
+    if (!item || item.poseFor || selected.has(item.id)) throw new Error('Choose each preview from the pin’s original saved media once.');
     selected.add(item.id);
     if (item.kind !== 'video') {
       if (preview.start !== undefined || preview.end !== undefined) throw new Error('Only video previews can have a clip range.');
@@ -66,7 +66,10 @@ export async function openLibrary(root) {
       if (collection.vault) protection.vaultPath(collection);
       else collection.settings = collectionSettings(collection.settings);
     }
-    for (const pin of data.pins) if (pin.previews !== undefined) pin.previews = pinPreviews(pin.previews, pin.items, pin.coverId);
+    for (const pin of data.pins) {
+      if (pin.items.some(item => item.poseFor !== undefined && (item.kind !== 'video' || item.id === pin.coverId || !pin.items.some(source => source.id === item.poseFor && source.kind === 'video' && !source.poseFor) || pin.items.filter(pose => pose.poseFor === item.poseFor).length !== 1))) throw new Error('Invalid pose attachment.');
+      if (pin.previews !== undefined) pin.previews = pinPreviews(pin.previews, pin.items, pin.coverId);
+    }
     data = storedLibrary(data); // Always start with protected collections locked.
   } catch (error) {
     if (error.code !== 'ENOENT') throw new Error(`Papan could not read its library. Your files have been preserved. ${error.message}`);

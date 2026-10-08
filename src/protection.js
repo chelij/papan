@@ -53,6 +53,7 @@ function validateManifest(manifest, id) {
       for (const field of ['previewFile', 'localFile', 'previewPath', 'localPath']) if (item[field]) throw new Error('An encrypted collection cannot reference plaintext files.');
     }
     if (!items.has(pin.coverId)) throw new Error('Invalid encrypted cover.');
+    if (pin.items.some(item => item.poseFor !== undefined && (item.kind !== 'video' || item.id === pin.coverId || !pin.items.some(source => source.id === item.poseFor && source.kind === 'video' && !source.poseFor) || pin.items.filter(pose => pose.poseFor === item.poseFor).length !== 1))) throw new Error('Invalid pose attachment.');
     if (pin.previews !== undefined) pin.previews = pinPreviews(pin.previews, pin.items, pin.coverId);
   }
   for (const entry of manifest.trash) if (entry.collection || !uuid.test(entry.id) || !Array.isArray(entry.pins) || entry.pins.some(item => !Number.isInteger(item.index) || item.index < 0)) throw new Error('Invalid encrypted removal history.');

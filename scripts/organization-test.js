@@ -112,7 +112,7 @@ try {
   const spare = await page.evaluate(() => window.papan.createCollection({ name: 'while downloading' }));
   assert.ok(Date.now() - start < 3000, 'metadata edits should not wait for a download');
   assert.ok(spare.id);
-  await page.getByLabel('Downloads', { exact: true }).click();
+  await page.getByLabel('Activity', { exact: true }).click();
   await expect(page.locator('.download[data-state="running"]')).toBeVisible();
   await page.screenshot({ path: 'artifacts/download-queue.png' });
   await page.locator(`[data-task="${taskId}"][data-action="cancelDownload"]`).click();
@@ -122,7 +122,7 @@ try {
   await page.locator(`[data-task="${taskId}"][data-action="retryDownload"]`).click();
   await waitDownloads();
   assert.equal((await page.evaluate(() => window.papan.downloads())).some(task => task.id === taskId), false);
-  await expect(page.getByLabel('Downloads', { exact: true })).toBeHidden();
+  await expect(page.getByLabel('Activity', { exact: true })).toBeHidden();
 
   // A move to an offline collection downloads originals before it commits.
   await page.getByRole('tab', { name: 'design notes', exact: true }).click();

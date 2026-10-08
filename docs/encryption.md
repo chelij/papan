@@ -26,6 +26,8 @@ After commit, a persisted cleanup list removes owned, unshared plaintext media a
 
 Downloads belonging to protected collections store their payload, title, progress, errors, and result encrypted in `downloads.json`. An opaque record keeps only task ID, kind, state, creation time, and collection IDs visible. Interrupted work stays paused; unlocking is required to retry. Completed tasks are removed rather than retained as history. Lock/password operations wait for active saves and downloads to finish.
 
+Pose extraction from an unlocked collection uses an authenticated source stream and a private temporary video file for the local CPU worker. The worker receives no key or password. The attachment is encrypted alongside the original media by the same save transaction; source metadata/media are preserved. Cancellation and failure remove temporary files; interrupted staging and committed plaintext cleanup use the existing startup recovery. The authenticated media item adds an optional `poseFor` source-item ID; the container and encryption algorithms remain version 1.
+
 ## Practical limits
 
 - Collection names, filenames, destinations, sizes, task timing, and collection counts are visible.

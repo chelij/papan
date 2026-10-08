@@ -82,7 +82,7 @@ try {
   assert.equal((await metrics()).height, original.height); assert.equal(collection.name, 'outside close');
   await tab('General').click(); await expect(page.locator('#collection-name')).toHaveValue('unsaved draft'); await page.locator('#discard-settings').click(); await expect(dialog).toBeHidden();
   checks.push('outside dismissal saves; failed saves retain drafts and keep the panel stable');
-  await page.locator('.pin-detail').first().click(); await page.locator('#edit-pin').click();
+  await page.locator('.tile-main').first().click(); await page.locator('#edit-pin').click();
   await page.locator('#edit-collection').selectOption(''); await expect(tab('Privacy')).toBeHidden();
   await page.locator('#collection-name').fill('new offline board'); await tab('Storage').click(); await page.locator('#collection-mode').selectOption('offline');
   await page.locator('#create-collection').click(); await expect(dialog).toBeHidden();

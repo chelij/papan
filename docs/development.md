@@ -19,6 +19,7 @@ npm run test:interactions
 npm run test:collections
 npm run test:organization
 npm run test:previews
+npm run test:pose
 npm run test:playback
 npm run test:visibility
 npm run test:slideshow
@@ -38,6 +39,12 @@ Desktop suites launch a real Electron window. Run them sequentially on an intera
 For `test:android-ui`, build the companion's `--test` APK in that repository, then run this desktop integration test with `PAPAN_ADB` set. `PAPAN_ANDROID_DIR` selects the companion checkout; the default is a sibling `../papan-android`. It installs a separate test package on a verified virtual display and uses a disposable collection and USB tunnel. Unlock the phone before clipboard checks. [Build/test details](mobile-sharing.md#build-and-checks).
 
 `test:previews` uses isolated headless Chromium and local videos of different lengths to check preview selection, both slider handles, boundary frames, independent video ranges, clip playback, cancellation, validation, and the queued-move payload. It stubs the preload boundary, so it does not replace native Electron checks. Set `PAPAN_CHROMIUM` to a Chromium executable; the Linux default is `/usr/bin/chromium`.
+
+`test:pose` checks the video viewer action, selected album item, absence of server configuration, errors, queue progress, first-use setup disclosure without a download, explicit pose playback, hidden attachment previews/navigation/cover editing, extraction while protected and unlocked, locked-pin hiding, and short-window controls in isolated headless Chromium. `test/pose.test.js` checks checksum-verified model caching, real worker-process cancellation, media batching, ordinary/encrypted attachment commits, independent album attachments, attachment validation and media cleanup, private decrypted input, failure cleanup, locked retries, encrypted queue persistence, and reopening. `test/pose-ui.test.js` checks production renderer bindings in JSDOM. Actual inference is an opt-in live check with the two pinned weights from `src/pose.js`; normal unit tests never download models. `scripts/pose-live-test.js` exercises actual inference and pin commits from a prepared fixture/cache; `PAPAN_APP_DIR` selects the packaged app code and `PAPAN_POSE_PROTECTED=1` checks encrypted source/output and cleanup. `PAPAN_POSE_RUNTIME_DOWNLOAD=1` verifies read-only setup inspection and a real runtime download from a loopback fixture serving the release asset before inference; models are prepared locally. It retains only the public runtime fixture cache for a subsequent fully offline check.
+
+`npm run setup` does not install pose dependencies. Source developers opt in with `npm run setup:pose`, which creates an isolated `.venv-pose/`. Release building uses `npm run build:pose` to set up and package the independent `papan-pose` worker. `PAPAN_POSE_WORKER=1` selects the source worker during development. The requirements pin all runtime dependencies and are installed with `--no-deps`: headless OpenCV supplies the `cv2` API instead of the overlapping GUI OpenCV wheels listed in rtmlib's metadata. Keep this replacement only while the worker uses no GUI/contrib APIs; recheck dependencies when changing that usage. The packaged worker includes native dependency notices and exact versions in `vendor/pose-source/`. No CUDA dependency is bundled.
+
+After opting into pose dependencies, run `.venv-pose/bin/python test/pose-worker.py -v` (Windows: `.venv-pose/Scripts/python.exe`). It uses controlled multi-person detections with actual rtmlib skeleton drawing to check people limits, tracking across batches and detection order changes, missing subjects, confidence filtering and request validation. Normal `npm test` still requires no pose dependencies. `scripts/pose-cleanup-live-test.js` is an opt-in offline packaged check using the prepared public fixture and verified dependency cache; `PAPAN_APP_DIR` points at the packaged application code. It performs real all/one/two-person extraction and encrypted replacement, checks all frames, stable pose/source IDs, unchanged original bytes/audio, saved settings, idempotent retries and plaintext cleanup, and retains compatibility fixtures under `artifacts/pose-cleanup-live/` without replacing earlier evidence.
 
 `test:playback` runs the renderer in the same isolated browser against the production file-response code over loopback HTTP. It checks byte responses, forward/backward seeking, native timeline clicks, and resumed playback from a saved MP4 after the original source server stops. The preload API is stubbed; it does not exercise Electron's custom protocol registration.
 
@@ -59,27 +66,30 @@ For `test:android-ui`, build the companion's `--test` APK in that repository, th
 
 `node scripts/site-checks.mjs` optionally inspects public sample posts without login. It is excluded from required checks because remote platforms change availability. Inspect its reported results instead of assuming a site name guarantees support.
 
+`test/activity-ui.test.js` exercises the production renderer's independent phone/download subscriptions in JSDOM: startup order, combined active counts, progress, receipt filtering, redacted titles, recovery errors, and action routing even when queue IDs coincide. `test:pose` additionally checks simultaneous mobile/pose progress, installation-gated card buttons, direct pose playback, and the transparent outlined badge's placement and computed colors; screenshots are `artifacts/activity-panel.png` and `artifacts/pose-card.png`. `test:slideshow` checks that pose controls continue to describe the visible video while the next image is loading. These renderer checks stub preload/IPC; receiver behavior remains covered by the unit and native phone suites.
+
 ## Build native packages
 
 Build on the target OS and architecture. In addition to the development prerequisites, install Bash, a C compiler, make, pkg-config, and preferably NASM. On Windows use MSYS2 MINGW64 with GCC; the [workflow](../.github/workflows/desktop.yml) lists its packages.
 
 ```sh
 npm run build:tools
+npm run build:pose
 npm run build:ffmpeg
 npm run package
 ```
 
-The first command creates a standalone Python helper and retains exact source distributions and checksums. The second builds pinned FFmpeg, x264, and dav1d sources with dependency autodetection and network protocols disabled. Papan downloads remote media itself and uses FFmpeg on local files. Build sources, configuration, and notices accompany the binary. Without NASM, the build falls back to portable C implementations, which may be slower.
+The first command creates a standalone Python helper and retains exact source distributions and checksums. The second builds the optional pose runtime. The third builds pinned FFmpeg, x264, and dav1d sources with dependency autodetection and network protocols disabled. Papan downloads remote media itself and uses FFmpeg on local files. Build sources, configuration, and notices accompany the binary. Without NASM, the build falls back to portable C implementations, which may be slower.
 
 Preview scaling uses bicubic interpolation with accurate rounding to avoid corrupted YUV colors in the bundled FFmpeg 7 fast scaling path. Packaging checks both AV1 decoding and decoded colors after the production portrait-video conversion. `previewVersion: 1` marks corrected video previews; older saved videos are rebuilt through the download queue after loading an unlocked collection. Revisit this compatibility repair when unversioned previews are no longer supported.
 
-The final command packages the app and writes `Papan-<version>-<platform>-<arch>.tar.gz` on Linux/macOS or `.zip` on Windows, plus a SHA-256 checksum. The archive includes media tools, production dependencies, licensing information, and helper/native source archives. Documentation, screenshots, development tests, and sample profiles are excluded.
+The final command packages the app and writes `Papan-<version>-<platform>-<arch>.tar.gz` on Linux/macOS or `.zip` on Windows, plus a SHA-256 checksum. The archive includes core media tools, production dependencies, licensing information, and helper/native source archives. Pose dependencies ship as a separate `Papan-pose-<version>-<platform>-<arch>` executable asset with a checksum; the base app includes only its download manifest and source/license notices. The first confirmed extraction downloads and verifies it. Before publishing a new desktop version, publish its matching pose asset in the same release; URLs are pinned to that version, never `latest`. Local development version assets are not publicly available until release publication. Documentation, screenshots, development tests, and sample profiles are excluded.
 
 Set `PAPAN_EXECUTABLE` to the packaged executable and rerun `test:desktop` and `test:organization` to exercise that build. On macOS the executable is `Papan.app/Contents/MacOS/papan` inside the package. CI performs these checks before uploading artifacts.
 
 ## Releases
 
-The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform and all nine isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
+The GitHub workflow builds on Linux x64, Windows x64, and the macOS runner's native architecture. It runs all five source desktop suites on every platform and all ten isolated renderer suites on Linux using the runner's Google Chrome executable. A `v*` tag publishes the packages only after every native build and packaged workflow passes. Versioned archives and checksums become GitHub Release assets; the source at that tag and included dependency source archives remain available alongside them.
 
 Before tagging, update `package.json`, the lockfile, the README's versioned download links, and [release notes](release-notes.md), then inspect the passing main-branch run. Signed installers, macOS notarization, and an updater are not implemented. Keep platform claims tied to recorded runner evidence.
 

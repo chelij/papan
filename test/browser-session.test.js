@@ -18,7 +18,7 @@ test('public extraction precedes browser fallback, and failed downloads restart 
   try {
     await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'vendor'));
     await writeFile(path.join(root, 'vendor/package.json'), '{"type":"commonjs"}');
-    await copyFile('src/media.js', path.join(root, 'src/media.js'));
+    for (const file of ['media.js', 'collection-files.js', 'library.js', 'protection.js', 'vault.js']) await copyFile(`src/${file}`, path.join(root, 'src', file));
     const log = path.join(root, 'requests.jsonl');
     await writeFile(path.join(root, 'vendor/papan-extract'), `#!/usr/bin/env node
 const fs = require('node:fs'), path = require('node:path');

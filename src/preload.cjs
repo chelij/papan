@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('papan', {
   library: invoke('library'), inspect: invoke('inspect'), save: invoke('save'), cancel: invoke('cancel'),
   enqueueSave: invoke('enqueue-save'), downloads: invoke('downloads'), cancelDownload: invoke('cancel-download'),
   retryDownload: invoke('retry-download'), dismissDownload: invoke('dismiss-download'),
+  enqueuePose: invoke('enqueue-pose'), poseSetup: invoke('pose-setup'), openPoseGuide: invoke('pose-guide'),
   updatePin: invoke('update-pin'), enqueuePin: invoke('enqueue-pin'), repairPreviews: invoke('repair-previews'), undoRemove: invoke('undo-remove'),
   enqueueCollection: invoke('enqueue-collection'), exportCollection: invoke('export-collection'),
   createCollection: invoke('create-collection'), updateCollection: invoke('update-collection'), setPreviewSize: invoke('set-preview-size'), copyLink: invoke('copy-link'),
