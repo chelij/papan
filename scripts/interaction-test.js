@@ -47,7 +47,7 @@ try {
   await mkdir('artifacts', { recursive: true });
   await launch();
   await expect(page.locator('.pin')).toHaveCount(pins.length);
-  await expect(page.locator('.toolbar-actions > button:visible')).toHaveCount(6);
+  await expect(page.locator('.toolbar-actions > button:visible')).toHaveCount(7);
   assert.ok(await page.evaluate(() => {
     const logo = document.querySelector('.wordmark').getBoundingClientRect(), mode = document.querySelector('#storage-mode').getBoundingClientRect();
     return mode.top >= logo.bottom && Math.abs(mode.left - logo.left) < 2;

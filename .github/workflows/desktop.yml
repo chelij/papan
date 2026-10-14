@@ -31,6 +31,9 @@ jobs:
       - run: npm run setup
       - run: npm run check
       - run: npm test
+      - name: Native desktop test tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y x11-utils
       - name: Renderer workflows (Linux)
         if: runner.os == 'Linux'
         shell: bash

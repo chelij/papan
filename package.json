@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "check": "node scripts/check.mjs",
-    "test": "node --test test/*.test.js",
+    "test": "node --expose-gc --test test/*.test.js",
     "test:desktop": "node scripts/desktop-test.js",
     "test:discovery": "node scripts/discovery-test.js",
     "test:phone": "node scripts/phone-test.js",

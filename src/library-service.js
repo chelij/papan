@@ -192,7 +192,7 @@ export async function openLibraryService(root, { library, publish = () => {}, po
           const file = library.protection.media(item, variant === 'original') || mediaLocation(root, item, variant === 'original');
           if (!file) throw failure('Saved media is not available.', 404);
           const extension = typeof file === 'string' ? path.extname(file).toLowerCase() : file.ext;
-          const result = await fileResponse(file, new Request(url, { method: request.method, headers: request.headers, signal: controller.signal }), mediaTypes[extension] || 'application/octet-stream');
+          const result = await fileResponse(file, { method: request.method, headers: new Headers(request.headers), signal: controller.signal }, mediaTypes[extension] || 'application/octet-stream');
           if (!stillAllowed(stream) || controller.signal.aborted) return abortStream(stream);
           const headers = Object.fromEntries(result.headers);
           headers['cache-control'] = 'no-store';

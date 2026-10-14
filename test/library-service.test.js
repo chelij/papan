@@ -158,7 +158,11 @@ test('protected media remains encrypted, hides on lock/restart, and lock/revoke/
   async function interrupted(action) {
     const response = await f.request(connection, route);
     assert.equal(response.status, 200);
-    const body = response.arrayBuffer().then(() => 'completed', () => 'cancelled');
+    const reader = response.body.getReader(), first = await reader.read();
+    assert.equal(first.done, false);
+    assert.ok(first.value.byteLength > 0, 'decryption is active before interrupting the transfer');
+    const body = (async () => { while (!(await reader.read()).done) {} return 'completed'; })().catch(() => 'cancelled');
+    globalThis.gc?.();
     await action(); assert.equal(await body, 'cancelled');
   }
   await interrupted(() => f.library.mutate(draft => f.library.protection.lock(draft, target.id)));
@@ -178,7 +182,7 @@ test('protected media remains encrypted, hides on lock/restart, and lock/revoke/
   await interrupted(() => f.service.updateClient({ id: connection.clientId, name: 'Protected reader', collectionIds: [f.collections[0].id] }));
   await f.service.updateClient({ id: connection.clientId, name: 'Protected reader', collectionIds: [target.id] });
   await interrupted(() => f.service.revoke(connection.clientId));
-  await until(() => finished === 4, () => 'Closed generators: ' + finished);
+  await until(() => finished === 4, () => 'Closed generators: ' + finished + '; aborted signals: ' + streamSignals.map(signal => signal.aborted));
   assert.equal(streamSignals.length, 4);
   assert.ok(streamSignals.every(signal => signal.aborted), 'every interrupted reader receives cancellation');
   const persistent = await f.service.grant({ name: 'Restart reader', collectionIds: [target.id] });

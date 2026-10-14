@@ -3,7 +3,7 @@ Papan v0.3.2 improves preview playback, startup recovery, and video imports.
 - **Smoother previews.** Resume hidden previews in small batches after the window paints. Visible videos and slideshows keep playing when you work in another window or on another monitor; explicit pauses stay paused.
 - **Startup recovery.** Show a loading error and retry action when the library cannot be read, keeping collection actions unavailable until loading succeeds.
 - **More reliable video imports.** Refresh temporary media links for downloads and retries, and use matching Firefox session-only login cookies when needed. Credentials stay local and are never saved with collections.
-- **Connect local apps.** Give compatible apps on this computer read-only access to selected collections, with separate keys, editable grants, search, media streaming, change notifications, and revocation. Protected collections must be unlocked in Papan.
+- **Connect local apps.** Give compatible apps on this computer read-only access to selected collections, with separate keys, editable grants, search, media streaming, change notifications, and revocation. Protected collections must be unlocked in Papan; locking or revoking access cancels their active transfers.
 
 [Full changelog](https://github.com/chelij/papan/blob/v0.3.2/CHANGELOG.md) · [User guide](https://github.com/chelij/papan/blob/v0.3.2/docs/usage.md)
 
@@ -11,7 +11,7 @@ Download the desktop archive for your OS/architecture, extract it, and launch `p
 
 All 64 unit groups and the affected renderer/discovery checks pass locally. Native Linux checks verify real focus changes and complete video inspection, saving, decoding, byte ranges, and seeking through the installed app and frozen helper. Release packages are gated by native source and packaged-app checks for Linux x64, Windows x64, and macOS ARM64.
 
-Collection formats, pose attachments, and the Android receiver protocol remain unchanged. App connections introduce a separate, opt-in local library protocol v1 using loopback only. ComfyUI v0.1.3 continues reading saved files; its live adapter remains separately unreleased. Existing Android/ComfyUI evidence is retained without claiming a new published release pair. Firefox containers and partitioned sessions, browser-bound verification, Windows/macOS pose inference, signed installers, and notarization retain their existing limits.
+Collection formats, pose attachments, and the Android receiver protocol remain unchanged. App connections introduce a separate, opt-in local library protocol v1 using loopback only. Use the separately released ComfyUI extension v0.1.4 for live connections; v0.1.3 continues reading saved files. Existing Android and saved-file evidence is retained. Firefox containers and partitioned sessions, browser-bound verification, Windows/macOS pose inference, signed installers, and notarization retain their existing limits.
 
 [Verification and compatibility](https://github.com/chelij/papan/blob/main/docs/verification.md).
 
