@@ -13,6 +13,6 @@ All 64 unit groups and the affected renderer/discovery checks pass locally. Nati
 
 Collection formats, pose attachments, and the Android receiver protocol remain unchanged. App connections introduce a separate, opt-in local library protocol v1 using loopback only. Use the separately released ComfyUI extension v0.1.4 for live connections; v0.1.3 continues reading saved files. Existing Android and saved-file evidence is retained. Firefox containers and partitioned sessions, browser-bound verification, Windows/macOS pose inference, signed installers, and notarization retain their existing limits.
 
-[Verification and compatibility](https://github.com/chelij/papan/blob/main/docs/verification.md).
+The [main preflight](https://github.com/chelij/papan/actions/runs/38542341012) and [tagged release](https://github.com/chelij/papan/actions/runs/38543780320) passed on all three platforms. All twelve public assets and their checksums are verified. The matching [ComfyUI v0.1.4 release](https://github.com/chelij/comfyui-papan/releases/tag/v0.1.4) passes real-provider tests and Linux live/saved-file workflows in classic and Nodes 2.0. [Verification and compatibility](https://github.com/chelij/papan/blob/main/docs/verification.md#v032-release).
 
 Desktop and pose-worker code are GPL-3.0-or-later; the separate extraction helper is GPL-2.0-only. Packages retain dependency notices and corresponding Python/FFmpeg/x264/dav1d sources. The separately downloaded models are Apache-2.0. [Third-party notices](https://github.com/chelij/papan/blob/v0.3.2/THIRD-PARTY.md).
