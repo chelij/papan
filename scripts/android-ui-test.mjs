@@ -28,7 +28,8 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, control, installed = false, port, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-for (const name of ['report.json', 'instrumentation.txt', 'failure.png', 'local.png', 'remote.png', 'unpaired.png', 'paired.png', 'narrow.png', 'tablet.png', 'large-text.png']) await rm(path.join(artifactDir, name), { force: true });
+const screens = ['failure.png', 'local.png', 'remote.png', 'unpaired.png', 'paired.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png'];
+for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
   const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), many = newCollection('Many references');
@@ -67,6 +68,22 @@ try {
   await new Promise(resolve => control.listen(0, '127.0.0.1', resolve));
   const pairing = await receiver.pair();
   adb('install', '-r', path.join(androidRoot, 'dist', `Papan-Android-${androidVersion}-test.apk`)); installed = true;
+  if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) {
+    const demoRoot = path.resolve(process.env.PAPAN_ANDROID_DEMO_ROOT), catalog = JSON.parse(await readFile(path.join(demoRoot, 'docs/demo/catalog.json'), 'utf8'));
+    const samples = catalog.slice(0, 8).map(art => {
+      assert.equal(art.isPublicDomain, true, 'Use only the existing credited public-domain demo.');
+      assert.ok(Number.isSafeInteger(art.objectID));
+      return { sourceUrl: art.objectURL, title: art.title, objectID: art.objectID, mediaFile: `${randomUUID()}.jpg` };
+    });
+    adb('shell', 'run-as', packageName, 'mkdir', '-p', 'files/mobile-media');
+    const put = (name, bytes) => {
+      assert.match(name, /^(?:style-demo\.json|mobile-media\/[a-f0-9-]{36}\.jpg)$/);
+      const result = spawnSync(process.env.PAPAN_ADB, [...adbArgs, 'shell', '-T', 'run-as', packageName, 'sh', '-c', `'cat > files/${name}'`], { input: bytes, timeout: 30000 });
+      assert.equal(result.status, 0, result.stderr.toString());
+    };
+    for (const sample of samples) put(`mobile-media/${sample.mediaFile}`, await readFile(path.join(demoRoot, 'artifacts/demo', `${sample.objectID}.jpg`)));
+    put('style-demo.json', Buffer.from(JSON.stringify(samples)));
+  }
   adb('shell', 'pm', 'grant', packageName, 'android.permission.CAMERA');
   for (const tunnelPort of [port, new URL(fixture.url).port, control.address().port]) { adb('reverse', `tcp:${tunnelPort}`, `tcp:${tunnelPort}`); tunnels.push(tunnelPort); }
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -78,11 +95,12 @@ try {
     child.on('close', code => { clearTimeout(timeout); code === 0 ? resolve(out) : reject(new Error(`Instrumentation exited ${code}: ${out}`)); });
   });
   await writeFile(path.join(artifactDir, 'instrumentation.txt'), output);
-  for (const name of ['unpaired.png', 'paired.png', 'local.png', 'remote.png', 'narrow.png', 'tablet.png', 'large-text.png', 'failure.png']) {
-    const result = spawnSync(process.env.PAPAN_ADB, [...adbArgs, 'exec-out', 'run-as', packageName, 'cat', `files/${name}`], { timeout: 30000 });
-    if (result.status === 0) await writeFile(path.join(artifactDir, name), result.stdout);
+  for (const name of screens) {
+    const result = spawnSync(process.env.PAPAN_ADB, [...adbArgs, 'exec-out', 'run-as', packageName, 'cat', `files/${name}`], { timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
+    if (result.status === 0 && result.stdout.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) await writeFile(path.join(artifactDir, name), result.stdout);
   }
   assert.match(output, /INSTRUMENTATION_RESULT: status=passed/, output);
+  if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) for (const name of screens.filter(name => name.startsWith('style-'))) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native screenshot missing: ${name}`);
   assert.equal(saves, cameraOnly ? 1 : 3, 'Every chosen desktop destination should produce exactly one save.');
   assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === destination.id).length, 1);
   if (!cameraOnly) assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === chosen.id).length, 1);
