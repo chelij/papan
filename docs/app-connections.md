@@ -1,6 +1,6 @@
 # Connect apps to your Papan library
 
-Papan v0.3.2 includes a read-only library service for compatible applications on the same computer. Papan owns the library; each app gets its own access key and a chosen set of collections. No account or Picteus dependency is involved. The unreleased [ComfyUI extension source](https://github.com/chelij/comfyui-papan#connect-papan) includes an adapter. Other applications, including Picteus, need their own adapter for the protocol below.
+Papan v0.3.2 includes a read-only library service for compatible applications on the same computer. Papan owns the library; each app gets its own access key and a chosen set of collections. No account or Picteus dependency is involved. The [ComfyUI extension v0.1.4](https://github.com/chelij/comfyui-papan#connect-papan) includes an adapter. Other applications, including Picteus, need their own adapter for the protocol below.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Keep Papan open while connected apps use it. This version listens only on IPv4 l
 
 ## ComfyUI
 
-In the updated Papan Board node, click **Connect Papan…**, paste the connection copied above, then choose **Open collection**. Papan and the **ComfyUI server** must run on the same computer; the browser may run elsewhere. This requires desktop v0.3.2 or newer and the extension's unreleased live-adapter changes. Published extension v0.1.3 continues using saved files and does not include this connection flow.
+In the updated Papan Board node, click **Connect Papan…**, paste the connection copied above, then choose **Open collection**. Papan and the **ComfyUI server** must run on the same computer; the browser may run elsewhere. This requires desktop v0.3.2 or newer and extension v0.1.4 or newer. Extension v0.1.3 continues using saved files and does not include this connection flow.
 
 The extension stores the app key in ComfyUI's user directory and keeps it out of workflows and media URLs. Live previews stream through the ComfyUI backend; edits, locking and access changes refresh opened boards automatically. Unlock protected collections in Papan. Every execution checks current access, including cached workflows. Existing saved-file workflows retain their previous behavior.
 
