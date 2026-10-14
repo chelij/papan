@@ -28,7 +28,7 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, control, installed = false, port, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'unpaired.png', 'paired.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
