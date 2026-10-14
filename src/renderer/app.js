@@ -1848,6 +1848,7 @@ async function openPhoneSharing() {
   try {
     await refresh(); renderPhoneInbox(await api.phoneReceiver(), true);
     $('phone-enabled').checked = phoneState.enabled;
+    $('phone-browsing').checked = Boolean(phoneState.browsing);
     $('phone-port').value = phoneState.port;
     $('phone-address').innerHTML = phoneState.addresses.map(item => `<option value="${escapeHTML(item.address)}">${escapeHTML(item.name)} · ${escapeHTML(item.address)}</option>`).join('');
     if (phoneState.addresses.some(item => item.address === phoneState.host)) $('phone-address').value = phoneState.host;
@@ -1862,7 +1863,7 @@ $('receive-phone').onclick = $('receive-empty-phone').onclick = openPhoneSharing
 $('phone-form').onsubmit = async event => {
   event.preventDefault(); $('phone-save').disabled = true; $('phone-error').textContent = '';
   try {
-    const value = await api.configurePhone({ enabled: $('phone-enabled').checked, collectionId: $('phone-collection').value, host: $('phone-address').value, port: Number($('phone-port').value) });
+    const value = await api.configurePhone({ enabled: $('phone-enabled').checked, browsing: $('phone-browsing').checked, collectionId: $('phone-collection').value, host: $('phone-address').value, port: Number($('phone-port').value) });
     await refresh(); renderPhoneInbox(value, true);
     $('phone-collection').innerHTML = library.collections.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join('') + '<option value="new-inbox">+ create Inbox collection</option>';
     $('phone-collection').value = value.collectionId;

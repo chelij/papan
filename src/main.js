@@ -620,6 +620,7 @@ else {
       decode: (task, required) => library.protection.decodeTask(task, required),
     });
     phoneReceiver = await openPhoneReceiver(library.root, {
+      library, unlock: (id, password) => protectCollection({ id }, (draft, id) => library.protection.unlock(draft, id, password)),
       run: (task, signal, progress) => savePhoneLink(task, { snapshot: library.snapshot, requireUnlocked: id => library.requireUnlocked(id), inspect: (url, signal) => inspectLink(url, signal, browserSession, renderPage), save: savePin }, signal, progress),
       collection: (id, unlocked = true) => unlocked ? library.requireUnlocked(id) : library.snapshot().collections.find(c => c.id === id) || (() => { throw new Error('Choose a destination collection.'); })(),
       available: () => !protectionBusy, publish: publishPhoneInbox,

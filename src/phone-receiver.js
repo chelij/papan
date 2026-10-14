@@ -5,6 +5,7 @@ import { readFile, writeFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import QRCode from 'qrcode';
 import { webURL } from './media.js';
+import { phoneLibrary } from './phone-library.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const shareId = /^[A-Za-z0-9_-]{8,100}$/;
@@ -28,21 +29,25 @@ const pairingPage = `<!doctype html><html lang="en"><meta charset="utf-8"><meta 
 const pairingScript = `const code=location.hash.slice(1);if(/^[a-f0-9]{32}$/.test(code))document.getElementById('open').href='papan-pair://connect?endpoint='+encodeURIComponent(location.origin)+'&code='+code;else document.getElementById('open').textContent='Pairing link is missing its code. Generate another QR in Papan.';`;
 
 export async function openPhoneReceiver(root, { run, collection, publish = () => {}, addresses = localAddresses,
-  codec = { encode: task => task, decode: task => task }, available = () => true }) {
+  codec = { encode: task => task, decode: task => task }, available = () => true, library, unlock }) {
   const file = path.join(root, 'phone-receiver.json');
-  let state = { version: 1, serverId: randomUUID(), enabled: false, host: '', port: 47778, collectionId: '', devices: [], entries: [] };
+  let state = { version: 1, serverId: randomUUID(), enabled: false, browsing: false, host: '', port: 47778, collectionId: '', devices: [], entries: [] };
   try {
     const saved = JSON.parse(await readFile(file, 'utf8'));
     if (saved.version !== 1 || !uuid.test(saved.serverId) || typeof saved.enabled !== 'boolean' || !Number.isInteger(saved.port) || saved.port < 1024 || saved.port > 65535 || typeof saved.host !== 'string' || typeof saved.collectionId !== 'string' || !Array.isArray(saved.devices) || saved.devices.length > 20 || !Array.isArray(saved.entries) || saved.entries.length > 5000 ||
       saved.devices.some(d => !uuid.test(d.id) || typeof d.name !== 'string' || !/^[a-f0-9]{64}$/.test(d.keyHash)) ||
       saved.entries.some(e => !uuid.test(e.id) || !['queued', 'running', 'failed', 'saved'].includes(e.state) || e.kind !== 'capture' || (!e.payload && !e.encrypted))) throw new Error('Invalid phone inbox.');
-    state = saved;
+    if (saved.browsing !== undefined && typeof saved.browsing !== 'boolean') throw new Error('Invalid phone browsing setting.');
+    state = { ...state, ...saved };
     state.entries = state.entries.map(entry => entry.state === 'running' ? { ...entry, state: 'queued' } : entry);
   } catch (error) { if (error.code !== 'ENOENT') throw new Error(`Could not read the phone inbox. Your files were preserved. ${error.message}`); }
   let server = null, networkError = '', writes = Promise.resolve(), active = null, stopped = false, pairing = null;
   let pairWindow = 0, pairAttempts = 0;
+  const browser = library && unlock ? phoneLibrary(root, { library, unlock, available,
+    allowed: id => state.enabled && state.browsing && state.devices.some(device => device.id === id),
+    endpoint: () => `http://${state.host}:${state.port}` }) : null;
   const snapshot = () => ({ enabled: state.enabled, running: Boolean(server?.listening), host: state.host, port: state.port,
-    collectionId: state.collectionId, addresses: addresses(), error: networkError, pairingExpiresAt: pairing?.expiresAt || null,
+    browsing: state.browsing, collectionId: state.collectionId, addresses: addresses(), error: networkError, pairingExpiresAt: pairing?.expiresAt || null,
     devices: state.devices.map(({ id, name, createdAt }) => ({ id, name, createdAt })),
     entries: state.entries.map(stored => {
       const task = codec.decode(stored);
@@ -124,9 +129,12 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       const digest = Buffer.from(hash(authorization.slice(7)), 'hex');
       const device = state.devices.find(d => timingSafeEqual(Buffer.from(d.keyHash, 'hex'), digest));
       if (!device) throw fail('Pairing was revoked. Pair this device again.', 401);
+      if (request.method === 'GET' && route === '/v1/capabilities') return send(200, { version: 1, collections: Boolean(browser && state.browsing), selectedDestination: Boolean(browser && state.browsing) });
+      if (browser && await browser.receive(request, response, device.id, body, send)) return;
       if (request.method === 'POST' && route === '/v1/shares') {
         const input = await body(request);
         if (typeof input.id !== 'string' || !shareId.test(input.id)) throw fail('A share needs a stable ID of 8–100 letters, digits, underscores, or hyphens.');
+        if (input.collectionId !== undefined && (typeof input.collectionId !== 'string' || !uuid.test(input.collectionId))) throw fail('Choose a valid destination collection.');
         const url = webURL(input.url), id = captureId(device.id, input.id);
         const result = await mutate(draft => {
           if (!draft.devices.some(d => d.id === device.id)) throw fail('Pairing was revoked.', 401);
@@ -134,13 +142,19 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
           if (found) {
             const decoded = codec.decode(found);
             if (decoded.payload && decoded.payload.url !== url) throw fail('This share ID already belongs to another link.', 409);
+            if (input.collectionId !== undefined && found.collections?.[0] !== input.collectionId) throw fail('This share ID already belongs to another collection.', 409);
             return receipt(found, input.id);
           }
           if (!available()) throw fail('Papan is updating collection protection. Try again shortly.', 503);
-          try { collection(draft.collectionId); } catch (error) { throw fail(error.message, 423); }
+          const destination = input.collectionId ?? draft.collectionId;
+          if (input.collectionId !== undefined) {
+            if (!browser) throw fail('Update desktop Papan to choose a collection from the phone.', 403);
+            browser.collectionFor(device.id, destination);
+          }
+          try { collection(destination); } catch (error) { throw fail(error.message, 423); }
           if (draft.entries.length >= 5000 || draft.entries.filter(e => e.state !== 'saved').length >= 100) throw fail('Phone inbox is full. Resolve or dismiss entries in Papan first.', 429);
-          const task = { id, kind: 'capture', state: 'queued', title: url, collections: [draft.collectionId],
-            payload: { url, collectionId: draft.collectionId }, createdAt: new Date().toISOString() };
+          const task = { id, kind: 'capture', state: 'queued', title: url, collections: [destination],
+            payload: { url, collectionId: destination }, createdAt: new Date().toISOString() };
           draft.entries.push(task); return receipt(task, input.id);
         });
         void pump(); return send(result.state === 'saved' ? 200 : 202, result);
@@ -173,9 +187,12 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
   return {
     snapshot, pump, get busy() { return Boolean(active); },
     async configure(input) {
+      const browsing = input.browsing ?? state.browsing;
+      if (typeof browsing !== 'boolean' || browsing && !browser) throw fail('Phone browsing is unavailable.');
       if (typeof input.enabled !== 'boolean' || typeof input.collectionId !== 'string' || typeof input.host !== 'string' || !Number.isInteger(input.port) || input.port < 1024 || input.port > 65535 || input.enabled && !addresses().some(item => item.address === input.host)) throw fail('Choose a local network address and a port between 1024 and 65535.');
       if (input.enabled) collection(input.collectionId, false);
-      await mutate(draft => Object.assign(draft, { enabled: input.enabled, host: input.host, port: input.port, collectionId: input.collectionId }));
+      await mutate(draft => Object.assign(draft, { enabled: input.enabled, browsing, host: input.host, port: input.port, collectionId: input.collectionId }));
+      browser?.invalidate();
       await closeServer(); await listen(); announce(); void pump(); return snapshot();
     },
     async pair() {
@@ -185,7 +202,7 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       const qr = await QRCode.toDataURL(url, { width: 240, margin: 2, errorCorrectionLevel: 'M' });
       announce(); return { url, qr, expiresAt: pairing.expiresAt };
     },
-    async revoke(id) { await mutate(draft => { draft.devices = draft.devices.filter(d => d.id !== id); }); },
+    async revoke(id) { await mutate(draft => { draft.devices = draft.devices.filter(d => d.id !== id); }); browser?.clear(id); },
     async retry(id) { await mutate(draft => { const index = draft.entries.findIndex(e => e.id === id), entry = index < 0 ? null : codec.decode(draft.entries[index]); if (!entry || entry.state !== 'failed') throw fail('Only failed shares can be retried.'); if (entry.encrypted) throw fail('Unlock the destination collection before retrying.'); draft.entries[index] = { ...entry, state: 'queued', error: '' }; }); void pump(); },
     async dismiss(id) { await mutate(draft => { const entry = draft.entries.find(e => e.id === id); if (!entry || entry.state === 'running' || entry.id === active?.id) throw fail('Wait for this share to finish first.'); draft.entries = draft.entries.filter(e => e.id !== id); }); },
     async clearSaved() { await mutate(draft => { draft.entries = draft.entries.filter(e => e.state !== 'saved'); }); },
@@ -195,6 +212,6 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       await persist(state, data);
       return async () => { await persist(before, undefined, true); };
     },
-    async stop() { stopped = true; const saving = active; saving?.controller.abort(); await closeServer(); await saving?.done; await writes; },
+    async stop() { stopped = true; browser?.stop(); const saving = active; saving?.controller.abort(); await closeServer(); await saving?.done; await writes; },
   };
 }
