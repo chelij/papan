@@ -8,6 +8,8 @@ const invoke = channel => async input => {
 
 contextBridge.exposeInMainWorld('papan', {
   browserSession: invoke('browser-session'), setBrowserSession: invoke('set-browser-session'),
+  libraryService: invoke('library-service'), configureLibraryService: invoke('configure-library-service'),
+  grantApp: invoke('grant-app'), updateApp: invoke('update-app'), revokeApp: invoke('revoke-app'), copyAppConnection: invoke('copy-app-connection'),
   phoneReceiver: invoke('phone-receiver'), configurePhone: invoke('configure-phone'), pairPhone: invoke('pair-phone'),
   revokePhone: invoke('revoke-phone'), retryPhoneShare: invoke('retry-phone-share'), dismissPhoneShare: invoke('dismiss-phone-share'), clearPhoneReceipts: invoke('clear-phone-receipts'),
   unlockCollection: invoke('unlock-collection'), lockCollection: invoke('lock-collection'), protectCollection: invoke('protect-collection'),
@@ -24,7 +26,7 @@ contextBridge.exposeInMainWorld('papan', {
   deleteCollection: invoke('delete-collection'), deletePin: invoke('delete-pin'), reorder: invoke('reorder'),
   openSource: invoke('open-source'), openFolder: invoke('open-folder'), tools: invoke('tools'),
   onWindowVisibility: callback => {
-    const listener = (_event, value) => callback(value);
+    const listener = (_event, value, focused) => callback(value, focused);
     ipcRenderer.on('papan:window-visibility', listener);
     return () => ipcRenderer.removeListener('papan:window-visibility', listener);
   },
@@ -42,5 +44,10 @@ contextBridge.exposeInMainWorld('papan', {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('papan:phone-inbox', listener);
     return () => ipcRenderer.removeListener('papan:phone-inbox', listener);
+  },
+  onLibraryService: callback => {
+    const listener = (_event, value) => callback(value);
+    ipcRenderer.on('papan:library-service', listener);
+    return () => ipcRenderer.removeListener('papan:library-service', listener);
   },
 });

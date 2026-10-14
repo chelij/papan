@@ -1,7 +1,7 @@
 {
   "name": "papan",
   "productName": "Papan",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A personal board for the things you find on the web.",
   "private": true,
   "type": "module",
@@ -13,6 +13,7 @@
     "test:desktop": "node scripts/desktop-test.js",
     "test:discovery": "node scripts/discovery-test.js",
     "test:phone": "node scripts/phone-test.js",
+    "test:app-connections": "node scripts/app-connections-test.js",
     "test:android-ui": "node scripts/android-ui-test.mjs",
     "test:browser-session": "node scripts/browser-session-test.js",
     "test:layout": "node scripts/layout-test.js",

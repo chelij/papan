@@ -11,6 +11,7 @@ import { exportBundle, importBundle } from './portable.js';
 import { isVault, vaultHeader } from './vault.js';
 import { fileResponse } from './file-response.js';
 import { openPhoneReceiver } from './phone-receiver.js';
+import { openLibraryService } from './library-service.js';
 import { savePhoneLink } from './phone-save.js';
 import { poseSource, savePosePin } from './pose-pin.js';
 import { POSE_GUIDE, poseSetup } from './pose.js';
@@ -22,7 +23,7 @@ app.commandLine.appendSwitch('disable-http-cache');
 if (process.env.PAPAN_DATA_DIR) app.setPath('userData', path.resolve(process.env.PAPAN_DATA_DIR));
 protocol.registerSchemesAsPrivileged([{ scheme: 'papan', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 const inspections = new Map(), jobs = new Map();
-let library, window, downloads, phoneReceiver, protectionBusy = false;
+let library, window, downloads, phoneReceiver, libraryService, protectionBusy = false;
 let browserSession = 'auto', browserSessionWrites = Promise.resolve();
 const localMedia = item => library.protection.media(item, true) || mediaLocation(library.root, item, true);
 
@@ -85,13 +86,14 @@ async function changeLibrary(operation, saveId = null) {
 async function protectCollection(input, action) {
   if (jobs.size || phoneReceiver?.busy || downloads.snapshot().some(task => ['queued', 'running'].includes(task.state))) throw new Error('Wait for downloads and other saves to finish before changing the lock.');
   protectionBusy = true;
+  libraryService?.suspend(input.id);
   try {
     await session.defaultSession.clearCache();
     const result = await changeLibrary(draft => action(draft, input.id));
     inspections.clear();
     downloads.publish();
     return result === undefined ? library.publicSnapshot() : result;
-  } finally { protectionBusy = false; phoneReceiver?.pump(); publishPhoneInbox(); }
+  } finally { protectionBusy = false; libraryService?.resume(input.id); phoneReceiver?.pump(); publishPhoneInbox(); }
 }
 
 function publishPhoneInbox(value = phoneReceiver?.snapshot()) {
@@ -295,6 +297,12 @@ function handle(name, action) {
 
 function installHandlers() {
   handle('library', () => library.publicSnapshot());
+  handle('library-service', () => libraryService.snapshot());
+  handle('configure-library-service', input => libraryService.configure(input));
+  handle('grant-app', input => libraryService.grant(input));
+  handle('update-app', input => libraryService.updateClient(input));
+  handle('revoke-app', id => libraryService.revoke(id));
+  handle('copy-app-connection', input => { clipboard.writeText(JSON.stringify(libraryService.connection(input), null, 2)); });
   handle('phone-receiver', () => phoneReceiver.snapshot());
   handle('configure-phone', async input => {
     let created;
@@ -563,10 +571,10 @@ async function createWindow() {
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   const publishVisibility = () => {
     if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-      window.webContents.send('papan:window-visibility', window.isVisible() && !window.isMinimized());
+      window.webContents.send('papan:window-visibility', window.isVisible() && !window.isMinimized(), window.isFocused());
     }
   };
-  for (const event of ['show', 'hide', 'minimize', 'restore', 'focus']) window.on(event, publishVisibility);
+  for (const event of ['show', 'hide', 'minimize', 'restore', 'focus', 'blur']) window.on(event, publishVisibility);
   window.webContents.on('did-finish-load', publishVisibility);
   window.on('closed', () => { for (const controller of jobs.values()) controller.abort(); window = null; });
   window.once('ready-to-show', () => window.show());
@@ -617,6 +625,9 @@ else {
       available: () => !protectionBusy, publish: publishPhoneInbox,
       codec: { encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()), decode: task => library.protection.decodeTask(task) },
     });
+    libraryService = await openLibraryService(library.root, { library, publish: value => {
+      if (window && !window.isDestroyed()) window.webContents.send('papan:library-service', value);
+    } });
     installHandlers();
     await createWindow();
     phoneReceiver.pump();
@@ -625,9 +636,9 @@ else {
   let quitting = false;
   app.on('before-quit', event => {
     downloads?.stop();
-    if (phoneReceiver && !quitting) {
+    if ((phoneReceiver || libraryService) && !quitting) {
       event.preventDefault();
-      void phoneReceiver.stop().finally(() => { quitting = true; app.quit(); });
+      void Promise.allSettled([phoneReceiver?.stop(), libraryService?.stop()]).finally(() => { quitting = true; app.quit(); });
     }
   });
   app.on('will-quit', () => library?.protection.clear());

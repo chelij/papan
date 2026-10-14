@@ -6,6 +6,9 @@ const samples = [
   ['X video', 'https://x.com/perrypumas/status/1065692031626829824'],
   ['YouTube video', 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'],
   ['Instagram album', 'https://www.instagram.com/p/BoHk1haB5tM/'],
+  ['Turbo download', 'https://turbo.cr/d/Skazh7iVsSsYA'],
+  ['Turbo video', 'https://turbo.cr/v/Skazh7iVsSsYA'],
+  ['SOOP Catch', 'https://vod.sooplive.com/player/209648853/catch'],
 ];
 const versions = await extractWorker({ action: 'versions' });
 const results = await Promise.all(samples.map(async ([name, url]) => {

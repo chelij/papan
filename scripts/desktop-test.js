@@ -16,9 +16,9 @@ const errors = [];
 async function launch() {
   app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [root], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: undefined }, timeout: 30000 });
   page = await app.firstWindow();
-  if (process.env.DISPLAY === ':97') {
+  if (process.env.DISPLAY) {
     const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
-    assert.equal(spawnSync('xprop', ['-display', ':97', '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+    assert.equal(spawnSync('xprop', ['-display', process.env.DISPLAY, '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
   }
   page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => Boolean(window.papan));

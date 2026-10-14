@@ -48,6 +48,7 @@ jobs:
           xvfb-run -a npm run test:collections
           xvfb-run -a npm run test:organization
           xvfb-run -a npm run test:phone
+          xvfb-run -a npm run test:app-connections
           xvfb-run -a npm run test:browser-session
           xvfb-run -a npm run test:preview-repair
       - name: Desktop workflows (Windows and macOS)
@@ -61,6 +62,7 @@ jobs:
           npm run test:interactions
           npm run test:collections
           npm run test:organization
+          npm run test:app-connections
       - run: npm run build:tools
       - run: npm run build:pose
       - name: Reuse the pinned FFmpeg build
@@ -102,6 +104,7 @@ jobs:
           xvfb-run -a npm run test:desktop
           xvfb-run -a npm run test:organization
           xvfb-run -a npm run test:phone
+          xvfb-run -a npm run test:app-connections
       - name: Verify packaged app (Windows and macOS)
         if: runner.os != 'Linux'
         shell: bash
@@ -110,6 +113,7 @@ jobs:
         run: |
           npm run test:desktop
           npm run test:organization
+          npm run test:app-connections
       - uses: actions/upload-artifact@v4
         with:
           name: Papan-${{ runner.os }}-${{ runner.arch }}

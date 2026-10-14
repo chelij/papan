@@ -11,6 +11,7 @@ let creatingCollection = false, shown = 0, filtered = [], viewerPin = null, view
 let toastTimer, confirmAction, layoutFrame = 0, gridWidth = 0, gridRowHeight = 0, wheelScrollTarget = null, layoutAnchor = null;
 let refreshAnchor = null;
 let libraryRequest = 0, appliedLibraryRequest = 0, collectionChoice = 0;
+let libraryLoaded = false, libraryLoading = false;
 let dragState = null, dragFrame = 0, reorderPending = false;
 let pinPreview = null;
 let layoutPreview = null;
@@ -18,6 +19,7 @@ let collectionFileBusy = false, editingPin = null, undoId = null, exportRequest 
 let downloadStates = new Map(), downloadTasks = [], poseToolsInstalled = false;
 let passwordAction = null, passwordCollection = null, passwordReplacementTab = null, passwordBusy = false;
 let phoneState = null, phonePairing = null, phoneSeen = new Map();
+let appsState = null, editingApp = null, appConnection = null, appGrantBusy = false;
 let appWindowVisible = true;
 const visible = new Set();
 const previewSizeTimers = new Map();
@@ -41,6 +43,31 @@ function toast(message, removalId = null) {
 
 function errorAt(id, error) { $(id).textContent = error.message || String(error); }
 
+async function loadLibrary() {
+  if (libraryLoaded || libraryLoading) return;
+  const retryFocused = document.activeElement === $('retry-library');
+  libraryLoading = true;
+  $('canvas').setAttribute('aria-busy', 'true');
+  $('library-message').textContent = 'loading library…';
+  $('library-error').textContent = '';
+  $('retry-library').disabled = true;
+  try {
+    await refresh();
+    if (!collectionId && openCollections().length) switchCollection(openCollections()[0].id);
+  } catch (error) {
+    if (!libraryLoaded) {
+      $('library-message').textContent = 'couldn’t load your library';
+      errorAt('library-error', error);
+      $('retry-library').hidden = false;
+    }
+  } finally {
+    libraryLoading = false;
+    $('canvas').setAttribute('aria-busy', 'false');
+    $('retry-library').disabled = false;
+    if (retryFocused && document.activeElement === document.body) (libraryLoaded ? collectionId ? $('canvas') : $('start-collecting') : $('retry-library')).focus();
+  }
+}
+
 async function refresh(preferred, replacementTab = null) {
   const request = ++libraryRequest, choice = collectionChoice;
   const snapshot = await api.library();
@@ -53,7 +80,13 @@ async function refresh(preferred, replacementTab = null) {
   tabOrder = open.map(item => item.id);
   collectionId = [preferred, collectionId, unlocked[0]?.id].find(id => unlocked.some(item => item.id === id)) || null;
   if (preferred && collectionId === preferred) collectionChoice++;
+  const retryFocused = document.activeElement === $('retry-library');
   render({ preserveBoard: collectionId === previousCollection });
+  libraryLoaded = true;
+  $('library-state').hidden = true;
+  $('canvas').setAttribute('aria-busy', 'false');
+  if (retryFocused) (collectionId ? $('canvas') : $('start-collecting')).focus();
+  if ($('apps-dialog').open) { renderAppScopes(); renderAppConnections(); }
   if ($('viewer').open && viewerPin) {
     viewerPin = library.pins.find(pin => pin.id === viewerPin.id);
     if (viewerPin) renderViewer(false); else $('viewer').close();
@@ -393,7 +426,8 @@ function mediaError(target, message) {
 
 // Keep playback intent separate from visibility pauses. pause/play events are
 // asynchronous, so count our own transitions rather than treating them as user input.
-const videoPlayback = new Map();
+const videoPlayback = new Map(), pendingVideoPlayback = new Set();
+let videoStartFrame = 0;
 // Report the transition from an edge contact (zero area) to visible pixels too.
 const videoObserver = new IntersectionObserver(entries => {
   for (const entry of entries) {
@@ -413,12 +447,25 @@ function videoIsVisible(video, state) {
 }
 
 function suspendVideo(video, state) {
+  pendingVideoPlayback.delete(video);
+  if (!pendingVideoPlayback.size && videoStartFrame) { cancelAnimationFrame(videoStartFrame); videoStartFrame = 0; }
   if (video.paused) return;
   state.pauses++;
   video.pause();
 }
 
-function syncVideoPlayback(video) {
+function startBoardVideos() {
+  videoStartFrame = 0;
+  let count = 0;
+  for (const video of pendingVideoPlayback) {
+    pendingVideoPlayback.delete(video);
+    syncVideoPlayback(video, true);
+    if (++count === 2) break;
+  }
+  if (pendingVideoPlayback.size) videoStartFrame = requestAnimationFrame(startBoardVideos);
+}
+
+function syncVideoPlayback(video, start = false) {
   if (!video) {
     for (const media of videoPlayback.keys()) syncVideoPlayback(media);
     return;
@@ -429,6 +476,12 @@ function syncVideoPlayback(video) {
   const allowed = state.board ? motion() : state.manual || settings().motion && !reducedMotion.matches;
   if (!videoIsVisible(video, state) || !allowed) { suspendVideo(video, state); return; }
   if (state.wantsPlay && video.paused && !video.ended) {
+    if (state.board && !start) {
+      pendingVideoPlayback.add(video);
+      // Paint the returning window before waking decoders, then start two per frame.
+      if (!videoStartFrame) videoStartFrame = requestAnimationFrame(() => { videoStartFrame = requestAnimationFrame(startBoardVideos); });
+      return;
+    }
     state.plays++;
     video.play().catch(error => state.onError?.(error));
   }
@@ -504,6 +557,7 @@ window.addEventListener('resize', () => {
 });
 
 setInterval(() => {
+  if (!appWindowVisible || document.hidden) return;
   syncVideoPlayback();
   if (!motion()) return;
   const now = Date.now();
@@ -1352,12 +1406,13 @@ $('settings-dialog').addEventListener('close', () => {
 });
 $('viewer').addEventListener('close', () => { $('viewer-media').querySelector('video')?.pause(); $('viewer-media').replaceChildren(); $('viewer-details').replaceChildren(); });
 document.addEventListener('paste', event => {
-  if (document.querySelector('dialog[open]') || ['INPUT', 'TEXTAREA'].includes(event.target.tagName)) return;
+  if (!libraryLoaded || document.querySelector('dialog[open]') || ['INPUT', 'TEXTAREA'].includes(event.target.tagName)) return;
   const value = event.clipboardData.getData('text').trim();
   if (/^https?:\/\//i.test(value)) { event.preventDefault(); openAdd(value, true); }
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Tab') document.documentElement.classList.add('keyboard-navigation');
+  if (!libraryLoaded) return;
   if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && ['t', 'w'].includes(event.key.toLowerCase())) {
     event.preventDefault();
     if (document.querySelector('dialog[open]') || dragState || event.repeat) return;
@@ -1766,7 +1821,8 @@ $('download-list').onclick = async event => {
 api.onDownloads(tasks => renderDownloads(tasks));
 api.downloads().then(tasks => renderDownloads(tasks, true)).catch(toastError);
 api.poseSetup?.().then(setup => { poseToolsInstalled = setup.downloadBytes === 0; for (const card of $('grid').children) showSlide(card, false); }).catch(() => {});
-refresh().then(() => { if (!collectionId && openCollections().length) switchCollection(openCollections()[0].id); }).catch(toastError);
+$('retry-library').onclick = loadLibrary;
+loadLibrary();
 
 function renderPhoneInbox(value, initial = false) {
   phoneState = value;
@@ -1832,3 +1888,94 @@ $('phone-entries').onclick = async event => {
 $('phone-clear').onclick = () => api.clearPhoneReceipts().catch(error => errorAt('phone-error', error));
 api.onPhoneInbox?.(value => renderPhoneInbox(value));
 api.phoneReceiver?.().then(value => renderPhoneInbox(value, true)).catch(toastError);
+
+function clearAppConnection() {
+  appConnection = null;
+  $('apps-endpoint').value = $('apps-key').value = $('apps-copy-status').textContent = '';
+  $('apps-connection').hidden = true;
+}
+function renderAppScopes(selectedIds = [...$('apps-collections').querySelectorAll('input:checked')].map(input => input.value)) {
+  const previous = appsState?.clients.find(client => client.id === editingApp);
+  $('apps-collections').innerHTML = library.collections.length ? library.collections.map(item => {
+    const retained = previous?.collectionIds.includes(item.id), disabled = item.locked && !retained;
+    return `<label><input type="checkbox" value="${escapeHTML(item.id)}" ${selectedIds.includes(item.id) && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span>${escapeHTML(item.name)}${item.locked ? ' · locked' : item.protected ? ' · protected' : ''}</span></label>`;
+  }).join('') : '<p class="hint">Create or open a collection to give an app access.</p>';
+}
+function renderAppConnections(value = appsState) {
+  if (!value) return;
+  appsState = value;
+  if (appConnection && !value.clients.some(client => client.id === appConnection.clientId)) clearAppConnection();
+  if (appConnection) $('apps-endpoint').value = value.endpoint;
+  $('apps-status').textContent = value.error || (value.running ? value.endpoint : 'app connections are off');
+  $('apps-grant').disabled = appGrantBusy || (!editingApp && (!value.running || !library.collections.some(item => !item.locked)));
+  $('apps-clients').innerHTML = value.clients.length ? value.clients.map(client => {
+    const names = client.collectionIds.map(id => library.collections.find(item => item.id === id)?.name).filter(Boolean);
+    return `<article class="phone-entry phone-device"><div><strong>${escapeHTML(client.name)}</strong><p class="hint">${escapeHTML(names.join(', ') || 'no available collections')}</p></div><div class="button-group"><button class="text-button" type="button" data-app-edit="${escapeHTML(client.id)}" aria-label="Change access for ${escapeHTML(client.name)}">change access</button><button class="text-button" type="button" data-app-revoke="${escapeHTML(client.id)}" aria-label="Revoke ${escapeHTML(client.name)}">revoke</button></div></article>`;
+  }).join('') : '<p class="hint">no apps have access</p>';
+}
+function editApp(client = null) {
+  editingApp = client?.id || null;
+  $('apps-name').value = client?.name || '';
+  $('apps-grant-title').textContent = client ? 'change app access' : 'give an app access';
+  $('apps-grant').textContent = client ? 'save access' : 'create access key';
+  $('apps-cancel-edit').hidden = !client;
+  renderAppScopes(client?.collectionIds || (collectionId ? [collectionId] : []));
+  renderAppConnections();
+}
+async function openAppConnections() {
+  try {
+    await refresh(); appsState = await api.libraryService();
+    clearAppConnection(); editApp();
+    $('apps-enabled').checked = appsState.enabled; $('apps-port').value = appsState.port;
+    $('apps-error').textContent = appsState.error;
+    $('apps-dialog').showModal();
+  } catch (error) { toastError(error); }
+}
+$('connect-apps').onclick = $('connect-empty-apps').onclick = openAppConnections;
+$('apps-dialog').addEventListener('close', clearAppConnection);
+$('apps-service-form').onsubmit = async event => {
+  event.preventDefault(); $('apps-save').disabled = true; $('apps-error').textContent = '';
+  try {
+    renderAppConnections(await api.configureLibraryService({ enabled: $('apps-enabled').checked, port: Number($('apps-port').value) }));
+    $('apps-error').textContent = appsState.error;
+  } catch (error) { errorAt('apps-error', error); }
+  finally { $('apps-save').disabled = false; }
+};
+$('apps-grant-form').onsubmit = async event => {
+  event.preventDefault(); if (appGrantBusy) return;
+  const input = { name: $('apps-name').value, collectionIds: [...$('apps-collections').querySelectorAll('input:checked')].map(input => input.value) };
+  if (!input.collectionIds.length) { $('apps-error').textContent = 'Choose at least one collection.'; return; }
+  appGrantBusy = true; renderAppConnections(); $('apps-error').textContent = '';
+  try {
+    if (editingApp) renderAppConnections(await api.updateApp({ ...input, id: editingApp }));
+    else {
+      const connection = await api.grantApp(input);
+      renderAppConnections(await api.libraryService());
+      if ($('apps-dialog').open) {
+        appConnection = connection;
+        $('apps-endpoint').value = connection.endpoint; $('apps-key').value = connection.token;
+        $('apps-copy-status').textContent = ''; $('apps-connection').hidden = false;
+        $('apps-copy').focus();
+      }
+    }
+    editApp();
+  } catch (error) { errorAt('apps-error', error); }
+  finally { appGrantBusy = false; renderAppConnections(); }
+};
+$('apps-cancel-edit').onclick = () => { editApp(); $('apps-name').focus(); };
+$('apps-clients').onclick = async event => {
+  const button = event.target.closest('[data-app-edit], [data-app-revoke]'); if (!button || appGrantBusy) return;
+  $('apps-error').textContent = '';
+  if (button.dataset.appEdit) { editApp(appsState.clients.find(client => client.id === button.dataset.appEdit)); $('apps-name').focus(); return; }
+  button.disabled = true;
+  try {
+    renderAppConnections(await api.revokeApp(button.dataset.appRevoke));
+    if (editingApp === button.dataset.appRevoke) editApp();
+  } catch (error) { errorAt('apps-error', error); button.disabled = false; }
+};
+$('apps-copy').onclick = async () => {
+  if (!appConnection) return;
+  try { await api.copyAppConnection(appConnection); $('apps-copy-status').textContent = 'connection copied'; }
+  catch (error) { errorAt('apps-error', error); }
+};
+api.onLibraryService?.(value => { appsState = value; if ($('apps-dialog').open) renderAppConnections(value); });

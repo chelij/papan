@@ -133,6 +133,67 @@ try {
   assert.equal(await video.evaluate(v => v.paused), true, 'native hidden-window signal pauses with document.hidden false');
   await page.evaluate(() => window.testWindowVisibility(true));
   await expect.poll(() => video.evaluate(v => !v.paused)).toBe(true);
+  const unfocusedTime = await video.evaluate(v => v.currentTime);
+  await video.evaluate(v => {
+    window.focusPlaybackEvents = [];
+    for (const type of ['play', 'pause']) v.addEventListener(type, () => window.focusPlaybackEvents.push(type));
+  });
+  await page.evaluate(() => window.testWindowVisibility(true, false));
+  assert.equal(await video.evaluate(v => v.paused), false, 'a visible window keeps playing after losing native focus');
+  await page.waitForTimeout(900);
+  assert.ok(await video.evaluate((v, time) => !v.paused && v.currentTime > time + .3, unfocusedTime), 'unfocused playback advances across multiple timer ticks');
+  await page.evaluate(() => window.testWindowVisibility(true, true));
+  assert.deepEqual(await page.evaluate(() => window.focusPlaybackEvents), [], 'focus changes do not pause or restart visible playback');
+  await page.evaluate(() => window.testWindowVisibility(true, false));
+  await video.evaluate(v => { v.currentTime = v.duration - .1; });
+  await expect.poll(() => video.evaluate(v => !v.paused && v.currentTime >= .5 && v.currentTime < 3)).toBe(true);
+  checks.push('visible board playback keeps advancing without pause/restart events and loops at its saved start while unfocused');
+  await page.evaluate(() => window.testWindowVisibility(false, false));
+  assert.equal(await video.evaluate(v => v.paused), true, 'hiding an unfocused window still pauses autoplay');
+  const idleTime = await video.evaluate(v => v.currentTime);
+  await page.waitForTimeout(450);
+  assert.ok(Math.abs(await video.evaluate(v => v.currentTime) - idleTime) < .05, 'idle previews retain their playback position');
+  const resume = await page.evaluate(async () => {
+    window.resumeStarts = [];
+    window.resumeFrame = 0;
+    const tick = () => { window.resumeFrame++; window.resumeProbe = requestAnimationFrame(tick); };
+    window.resumeProbe = requestAnimationFrame(tick);
+    window.originalPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      if (this.closest('.tile-media')) window.resumeStarts.push(window.resumeFrame);
+      return window.originalPlay.call(this);
+    };
+    window.testWindowVisibility(true, false);
+    window.testWindowVisibility(true, false);
+    const immediate = window.resumeStarts.length;
+    await new Promise(requestAnimationFrame);
+    return { immediate, firstFrame: window.resumeStarts.length };
+  });
+  assert.deepEqual(resume, { immediate: 0, firstFrame: 0 }, 'showing an unfocused window allows a paint before restarting decoders');
+  await expect.poll(() => video.evaluate((v, time) => !v.paused && v.currentTime > time + .15, idleTime)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.resumeStarts.length)).toBeGreaterThan(2);
+  const starts = await page.evaluate(() => {
+    cancelAnimationFrame(window.resumeProbe);
+    HTMLMediaElement.prototype.play = window.originalPlay;
+    return window.resumeStarts;
+  });
+  assert.ok(starts.every(frame => starts.filter(value => value === frame).length <= 2), 'duplicate visibility signals still start at most two board previews per frame');
+  await page.evaluate(async () => {
+    window.testWindowVisibility(false, false);
+    window.testWindowVisibility(true, false);
+    window.testWindowVisibility(false, false);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  assert.equal(await page.locator('.tile-media video').evaluateAll(videos => videos.some(v => !v.paused)), false, 'leaving before the queue drains cancels pending autoplay');
+  await page.evaluate(() => window.testWindowVisibility(true, true));
+  await expect.poll(() => video.evaluate(v => !v.paused)).toBe(true);
+  await video.evaluate(v => v.pause());
+  await page.evaluate(() => { window.testWindowVisibility(true, false); window.testWindowVisibility(true, true); });
+  await page.waitForTimeout(150);
+  assert.equal(await video.evaluate(v => v.paused), true, 'focus changes preserve an explicit pause');
+  assert.equal(await original.evaluate(v => v === document.querySelector('.pin video')), true, 'visibility resume retains the same decoder element');
+  await video.evaluate(v => v.play());
+  checks.push('hidden board autoplay retains position, yields a paint, resumes in batches even without focus, and cancels pending starts when hidden again');
   await hidden(true);
   assert.equal(await video.evaluate(v => v.paused), true, 'visibilitychange pauses synchronously');
   await hidden(false);
@@ -162,6 +223,10 @@ try {
   const viewer = page.locator('#viewer-media video');
   await expect.poll(() => viewer.evaluate(v => !v.paused && v.currentTime > .2)).toBe(true);
   await expect.poll(() => video.evaluate(v => v.paused)).toBe(true);
+  const viewerTimeBeforeBlur = await viewer.evaluate(v => v.currentTime);
+  await page.evaluate(() => window.testWindowVisibility(true, false));
+  await expect.poll(() => viewer.evaluate((v, time) => !v.paused && v.currentTime > time + .15, viewerTimeBeforeBlur)).toBe(true);
+  await page.evaluate(() => window.testWindowVisibility(true, true));
   await hidden(true); assert.equal(await viewer.evaluate(v => v.paused), true);
   await hidden(false); await expect.poll(() => viewer.evaluate(v => !v.paused)).toBe(true);
   await viewer.evaluate(v => v.pause());
