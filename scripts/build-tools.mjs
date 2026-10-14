@@ -20,9 +20,10 @@ await copyFile(path.join(root, 'requirements.txt'), path.join(root, 'vendor', 's
 // Retain the source distributions and their license files alongside the helper.
 run(['scripts/collect-python-sources.py']);
 await writeFile(path.join(root, 'vendor', 'THIRD-PARTY.txt'),
-  'Papan media helper uses gallery-dl (GPL-2.0-only), yt-dlp (Unlicense), Instaloader (MIT), and their dependencies.\n' +
+  'Papan media helper uses gallery-dl (GPL-2.0-only), yt-dlp (Unlicense), Instaloader (MIT), LZ4 (BSD-3-Clause), and their dependencies.\n' +
   'The helper is GPL-2.0-only. Exact installed source distributions, checksums, and the helper source are in source/.\n' +
   'gallery-dl: https://codeberg.org/mikf/gallery-dl\n' +
   'yt-dlp: https://github.com/yt-dlp/yt-dlp\n' +
   'Instaloader: https://github.com/instaloader/instaloader\n' +
+  'LZ4: https://github.com/python-lz4/python-lz4\n' +
   'FFmpeg and ffprobe are in vendor/; matching source, configuration and licenses are in native-source/.\n');

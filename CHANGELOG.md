@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.2 - 2026-10-14
+
+Changes since [v0.3.1](https://github.com/chelij/papan/releases/tag/v0.3.1).
+
+### Added
+
+- Give compatible local apps read-only access to selected collections through **Connect apps**, with independent access keys, editable grants, media streaming, search, change notifications, and revocation. Protected collections require unlocking in Papan.
+
+### Fixed
+
+- Resume hidden board previews after a paint and in small batches. Keep visible videos and slideshows playing when focus moves to another window or monitor, and preserve explicit pauses.
+- Show library loading failures with a retry action instead of presenting an empty board. Keep collection actions unavailable until the library loads successfully.
+- Improve individual video imports and refresh temporary media links for each download or retry. Read matching Firefox session-only login cookies when needed, without saving or exporting credentials.
+
+### Compatibility and checks
+
+- Saved, portable, and encrypted collection formats, pose attachments, and the Android receiver protocol remain unchanged. The optional local library service introduces a separate protocol v1; the published ComfyUI v0.1.3 reader continues using saved files.
+- All 64 unit groups and the affected playback, slideshow, visibility, and discovery checks pass locally. Native Linux checks verify focus changes and a complete video import, save, playback, and seek through the packaged helper.
+- Local app connections use loopback only. The live ComfyUI adapter remains separately unreleased; existing companion release-pair and Windows/macOS pose-inference limits remain.
+
 ## 0.3.1 — 2026-10-09
 
 Changes since [v0.3.0](https://github.com/chelij/papan/releases/tag/v0.3.0).

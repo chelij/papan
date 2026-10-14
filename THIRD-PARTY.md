@@ -11,6 +11,7 @@ Papan's desktop code is **GPL-3.0-or-later**. The independently executed extract
 | gallery-dl | GPL-2.0-only | Python extraction helper. [Source](https://codeberg.org/mikf/gallery-dl). |
 | yt-dlp | Unlicense; optional dependencies retain their own licenses | Video extraction. [Source and licensing](https://github.com/yt-dlp/yt-dlp#license). |
 | Instaloader | MIT | Public Instagram fallback. [Source](https://github.com/instaloader/instaloader). |
+| python-lz4 4.4.5 | BSD-3-Clause | Decode site-scoped Firefox session cookies for video imports. The source archive and license ship with the extraction helper. [Source](https://github.com/python-lz4/python-lz4). |
 | Mutagen | GPL-2.0-or-later | yt-dlp dependency in the helper. [Source](https://github.com/quodlibet/mutagen). |
 | Requests | Apache-2.0 | Upstream extractor HTTP dependency. [Source](https://github.com/psf/requests). |
 | Mozilla Readability | Apache-2.0 | Article extraction. [Source](https://github.com/mozilla/readability). |

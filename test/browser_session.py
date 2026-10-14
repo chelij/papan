@@ -1,10 +1,13 @@
 import importlib.util
+import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 from http.cookiejar import Cookie
+import lz4.block
 
 spec = importlib.util.spec_from_file_location("papan_extract", Path(__file__).parents[1] / "worker/extract.py")
 extract = importlib.util.module_from_spec(spec)
@@ -32,10 +35,50 @@ class BrowserSessionTests(unittest.TestCase):
     def test_each_site_reads_only_its_cookie_domain_and_drops_expired_cookies(self):
         current = Cookie(0, "session", "fixture", None, False, ".x.com", True, True, "/", True, True, None, False, None, None, {})
         expired = Cookie(0, "expired", "fixture", None, False, ".x.com", True, True, "/", True, True, 1, False, None, None, {})
-        for url, domain in [("https://twitter.com/u/status/123", ".x.com"), ("https://instagram.com/reel/example", ".instagram.com"), ("https://youtu.be/example", ".youtube.com")]:
-            with patch("gallery_dl.cookies.load_cookies", return_value=[current, expired]) as load:
+        for url, domain in [("https://twitter.com/u/status/123", ".x.com"), ("https://instagram.com/reel/example", ".instagram.com"), ("https://youtu.be/example", ".youtube.com"), ("https://turbo.cr/d/example", ".turbo.cr"), ("https://vod.sooplive.com/player/123/catch", ".sooplive.com")]:
+            with patch("gallery_dl.cookies.load_cookies", return_value=[current, expired]) as load, patch.object(extract, "firefox_session_cookies", return_value=[]):
                 self.assertEqual(extract.session_cookies({"browser": "firefox", "url": url}), [current])
                 load.assert_called_once_with(["firefox", None, None, None, domain])
+
+    def test_soop_imports_only_default_profile_site_session_cookies_without_writing_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshots = root / "sessionstore-backups"
+            snapshots.mkdir()
+            cookie = {"host": ".sooplive.com", "name": "AuthTicket", "value": "fixture-session", "path": "/", "secure": True, "httponly": True,
+                      "originAttributes": {"firstPartyDomain": "", "partitionKey": "", "privateBrowsingId": 0, "userContextId": 0}}
+            file = snapshots / "recovery.jsonlz4"
+            session = {"cookies": [cookie, {**cookie, "host": "vod.sooplive.com", "name": "UserTicket", "path": "/player"},
+                                   {**cookie, "host": ".other.example"}, {**cookie, "host": "sooplive.com.evil.example"},
+                                   {**cookie, "originAttributes": {"userContextId": 2}}, {**cookie, "originAttributes": {"partitionKey": "(https,other.example)"}}, {**cookie, "expiry": 1},
+                                   {**cookie, "name": None}]}
+            file.write_bytes(b"mozLz40\0" + lz4.block.compress(json.dumps(session).encode()))
+            before = {str(file.relative_to(root)): file.read_bytes() for file in root.rglob("*") if file.is_file()}
+            with patch("gallery_dl.cookies._firefox_cookies_database", return_value=(str(root / "cookies.sqlite"), False)):
+                cookies = extract.firefox_session_cookies(".sooplive.com")
+                self.assertEqual([cookie.name for cookie in cookies], ["AuthTicket", "UserTicket"])
+                self.assertEqual((cookies[1].domain, cookies[1].domain_initial_dot, cookies[1].path, cookies[1].secure), ("vod.sooplive.com", False, "/player", True))
+                self.assertEqual(cookies[0].value, "fixture-session")
+                self.assertEqual({str(file.relative_to(root)): file.read_bytes() for file in root.rglob("*") if file.is_file()}, before)
+                newer = root / "sessionstore.jsonlz4"
+                newer.write_bytes(b"mozLz40\0" + lz4.block.compress(b'{"cookies":[]}'))
+                os.utime(newer, (file.stat().st_mtime + 1, file.stat().st_mtime + 1))
+                self.assertEqual(extract.firefox_session_cookies(".sooplive.com"), [], "a newer logged-out session must not revive older credentials")
+                for data in [b"broken", b"mozLz40\0" + (129 * 1024 * 1024).to_bytes(4, "little"), b"mozLz40\0" + lz4.block.compress(b'{"cookies":null}')]:
+                    newer.write_bytes(data)
+                    os.utime(newer, (file.stat().st_mtime + 1, file.stat().st_mtime + 1))
+                    self.assertEqual(extract.firefox_session_cookies(".sooplive.com"), [])
+
+    def test_soop_auto_skips_guest_cookies_and_merges_the_current_firefox_session(self):
+        guest = Cookie(0, "theme", "fixture", None, False, ".sooplive.com", True, True, "/", True, True, None, False, None, None, {})
+        login = Cookie(0, "AuthTicket", "fixture-session", None, False, ".sooplive.com", True, True, "/", True, True, None, True, None, None, {})
+        request = {"browser": "auto", "url": "https://vod.sooplive.com/player/123/catch"}
+        with patch("gallery_dl.cookies.load_cookies", return_value=[guest]), patch.object(extract, "firefox_session_cookies", return_value=[login]) as session:
+            self.assertEqual(extract.session_cookies(request), [guest, login])
+            session.assert_called_once_with(".sooplive.com")
+        with patch("gallery_dl.cookies.load_cookies", return_value=[guest]), patch.object(extract, "firefox_session_cookies", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "No signed-in browser session"):
+                extract.session_cookies(request)
 
     def test_native_cookie_reader_filters_other_sites_without_exporting_values(self):
         from gallery_dl.cookies import load_cookies

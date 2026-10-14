@@ -32,7 +32,8 @@ try {
   page.on('request', request => { if (request.url() === green.url) greenRequests++; });
   await page.route(blue.url, async route => { blueRequests++; await blueGate; await route.continue(); });
   await page.exposeFunction('readSlideshowLibrary', () => structuredClone(state));
-  await page.addInitScript(() => { window.papan = { library: () => window.readSlideshowLibrary(), downloads: async () => [], onDownloads() {}, onProgress() {}, tools: async () => ({}), poseSetup: async () => ({ downloadBytes: 0 }) }; });
+  await page.addInitScript(() => { window.papan = { library: () => window.readSlideshowLibrary(), downloads: async () => [], onDownloads() {}, onProgress() {}, tools: async () => ({}), poseSetup: async () => ({ downloadBytes: 0 }),
+    onWindowVisibility: callback => { window.testWindowVisibility = callback; } }; });
   await page.goto(pathToFileURL(path.resolve('src/renderer/index.html')).href);
   const image = page.locator('.tile-media img');
   const readyImage = async source => {
@@ -55,6 +56,7 @@ try {
     requestAnimationFrame(sample);
   });
   await readyImage(red.url);
+  await page.evaluate(() => window.testWindowVisibility(true, false));
   await monitorFrames();
   await expect.poll(() => blueRequests).toBe(1);
   // Hold the next response beyond a complete slideshow interval.
@@ -72,6 +74,7 @@ try {
   assert.deepEqual(frames.changes.slice(0, 4).map(change => change.src), [red.url, blue.url, green.url, red.url]);
   for (let index = 2; index < 4; index++) assert.ok(frames.changes[index].time - frames.changes[index - 1].time >= 980, 'interval begins when the image becomes visible');
   assert.equal(new Set(frames.changes.map(change => `${change.width}:${change.height}`)).size, 1, 'album dimensions stay fixed');
+  checks.push('visible image slideshows keep advancing while the native window is unfocused');
   checks.push('delayed next image retains the current image and slide dot; no blank frames, skipped slides or shortened intervals');
 
   pin.items = [red, missing, green];

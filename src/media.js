@@ -46,6 +46,14 @@ export function routeSource(value) {
     if (host !== 'youtu.be' && !url.searchParams.get('v') && !/^\/(shorts|embed)\//.test(url.pathname)) throw new Error('Paste a single YouTube video, rather than a channel or playlist.');
     return 'video';
   }
+  if (host === 'turbo.cr') {
+    if (!/^\/(?:d|v|embed)\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) throw new Error('Paste a single Turbo video or download link.');
+    return 'video';
+  }
+  if (host === 'vod.sooplive.com') {
+    if (!/^\/player\/\d+\/catch\/?$/.test(url.pathname)) throw new Error('Paste a single SOOP Catch video link.');
+    return 'video';
+  }
   return 'page';
 }
 

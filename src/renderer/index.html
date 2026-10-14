@@ -16,6 +16,7 @@
       <button id="new-collection" class="toolbar-button new-tab-button" aria-label="New tab" title="New tab (Ctrl/Cmd+T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
     </div>
     <div class="toolbar-actions">
+      <button id="connect-apps" class="toolbar-button" aria-label="Connect apps" title="Connect apps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg></button>
       <button id="receive-phone" class="toolbar-button" aria-label="Receive from phone" title="Receive from phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4M9 6h6"/></svg></button>
       <button id="open-collection" class="toolbar-button" aria-label="Open collection" title="Open collection (Ctrl/Cmd+O)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 19V5h6l3 3h8v3M3 19l3-8h16l-3 8Z"/></svg></button>
       <button id="save-collection-file" class="toolbar-button" aria-label="Save collection" title="Save collection (Ctrl/Cmd+S)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 3h13l4 4v14H3V3ZM7 3v6h10V3M7 21v-8h10v8"/></svg></button>
@@ -37,18 +38,45 @@
   </div>
   <span id="reorder-help" hidden>Drag to reorder, or hold Alt and press the Left or Right arrow key.</span>
   <div id="drop-marker" hidden></div>
-  <main id="canvas">
+  <main id="canvas" aria-busy="true">
     <div id="search-summary" class="search-summary" hidden><span id="search-count"></span><button id="reset-filters" class="text-button">clear filters</button></div>
-    <div id="empty" class="empty-state">
-      <div class="empty-prompt"><button id="start-collecting" aria-label="Paste link to start collecting">paste link to start collecting</button><button id="open-empty-collection" class="empty-open">open a collection</button><button id="receive-empty-phone" class="empty-open">receive from phone</button></div>
+    <div id="library-state" class="empty-state">
+      <div class="empty-prompt library-prompt"><p id="library-message" class="library-message" role="status">loading library…</p><p id="library-error" class="error" role="alert"></p><button id="retry-library" class="quiet-button" hidden>retry</button></div>
     </div>
-    <div id="grid" class="grid" aria-label="Pins" role="list"></div>
+    <div id="empty" class="empty-state" hidden>
+      <div class="empty-prompt"><button id="start-collecting" aria-label="Paste link to start collecting">paste link to start collecting</button><button id="open-empty-collection" class="empty-open">open a collection</button><button id="receive-empty-phone" class="empty-open">receive from phone</button><button id="connect-empty-apps" class="empty-open">connect apps</button></div>
+    </div>
+    <div id="grid" class="grid" aria-label="Pins" role="list" hidden></div>
     <div id="sentinel" aria-hidden="true"></div>
   </main>
   <footer id="board-footer">
     <p id="end-note" class="end-note"></p>
     <button id="downloads-toggle" class="quiet-button" popovertarget="downloads-panel" aria-label="Activity" title="Downloads, pose extraction, and mobile shares" hidden>activity <span id="download-count"></span></button>
   </footer>
+  <dialog id="apps-dialog" aria-labelledby="apps-title">
+    <div class="dialog-top"><h1 id="apps-title">connect apps</h1><button class="icon-button" data-close="apps-dialog" aria-label="Close app connections">×</button></div>
+    <p class="hint">Let compatible apps on this computer browse, search, and read media from collections you choose. Papan must stay open.</p>
+    <form id="apps-service-form">
+      <label class="phone-enable"><input id="apps-enabled" type="checkbox"> enable app connections</label>
+      <label for="apps-port">port</label><input id="apps-port" type="number" min="1024" max="65535" value="47779" required>
+      <div class="dialog-footer"><p id="apps-status" class="status" role="status"></p><button id="apps-save" class="quiet-button">save connection settings</button></div>
+    </form>
+    <form id="apps-grant-form">
+      <h2 id="apps-grant-title" class="phone-section-title">give an app access</h2>
+      <label for="apps-name">app name</label><input id="apps-name" maxlength="80" required autocomplete="off" placeholder="e.g. Picteus">
+      <fieldset id="apps-scopes"><legend>collections this app can read</legend><div id="apps-collections"></div></fieldset>
+      <p class="hint">Unlock protected collections in Papan before adding them. Locking stops access and active streams. Apps may keep copies they already received.</p>
+      <div class="button-group"><button id="apps-cancel-edit" class="quiet-button" type="button" hidden>cancel changes</button><button id="apps-grant" class="primary-button">create access key</button></div>
+    </form>
+    <div id="apps-connection" hidden>
+      <label for="apps-endpoint">connection address</label><input id="apps-endpoint" readonly>
+      <label for="apps-key">access key · shown once</label><input id="apps-key" readonly spellcheck="false" autocomplete="off">
+      <p class="hint">Save the address and key in your app’s Papan integration before closing. To replace a lost key, revoke this app and create a new connection.</p>
+      <button id="apps-copy" class="quiet-button" type="button">copy connection</button><p id="apps-copy-status" class="hint" role="status"></p>
+    </div>
+    <h2 class="phone-section-title">allowed apps</h2><div id="apps-clients"></div>
+    <p id="apps-error" class="error" role="alert"></p>
+  </dialog>
   <dialog id="phone-dialog" aria-labelledby="phone-title">
     <div class="dialog-top"><h1 id="phone-title">receive from phone</h1><button class="icon-button" data-close="phone-dialog" aria-label="Close phone sharing">×</button></div>
     <p class="hint">Share a link from your phone and Papan saves all extracted media to your chosen collection. Both devices must be reachable on your local network.</p>

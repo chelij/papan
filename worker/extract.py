@@ -8,12 +8,55 @@ import logging
 import os
 from pathlib import Path
 import sys
+from http.cookiejar import Cookie
 from urllib.parse import urlsplit
+
+from yt_dlp.extractor.common import InfoExtractor
+from yt_dlp.extractor.afreecatv import AfreecaTVIE
+from yt_dlp.utils import ExtractorError, determine_ext
 
 # Requests-based extractors must never read saved HTTP credentials.
 os.environ["NETRC"] = os.devnull
 MAX_FILE = 512 * 1024 * 1024
 BROWSERS = {"chrome", "chromium", "firefox", "brave", "edge", "vivaldi", "opera", "safari"}
+
+
+def firefox_session_cookies(domain):
+    from gallery_dl.cookies import _firefox_cookies_database
+    import lz4.block
+    try:
+        database, _ = _firefox_cookies_database("firefox")
+        profile = Path(database).parent
+        candidates = [profile / "sessionstore.jsonlz4", profile / "sessionstore-backups/recovery.jsonlz4",
+                      profile / "sessionstore-backups/recovery.baklz4"]
+        file = max((file for file in candidates if file.is_file()), key=lambda file: file.stat().st_mtime, default=None)
+        if file is None or file.stat().st_size > 32 * 1024 * 1024:
+            return []
+        data = file.read_bytes()
+        if data[:8] != b"mozLz40\0" or not 0 < int.from_bytes(data[8:12], "little") <= 128 * 1024 * 1024:
+            return []
+        session = json.loads(lz4.block.decompress(data[8:]))
+        if not isinstance(session, dict) or not isinstance(session.get("cookies"), list):
+            return []
+        cookies = []
+        for item in session["cookies"]:
+            if not isinstance(item, dict):
+                continue
+            attributes = item.get("originAttributes") or {}
+            if not isinstance(attributes, dict) or any(attributes.values()):
+                continue
+            host = item.get("host", "")
+            if not isinstance(host, str) or not (host.lstrip(".") == domain.lstrip(".") or host.endswith(domain)):
+                continue
+            if not all(isinstance(item.get(key), str) for key in ("name", "value", "path")):
+                continue
+            cookie = Cookie(0, item["name"], item["value"], None, False, host, bool(host), host.startswith("."),
+                            item["path"], True, bool(item.get("secure")), item.get("expiry"), True, None, None, {})
+            if not cookie.is_expired():
+                cookies.append(cookie)
+        return cookies
+    except (OSError, ValueError, TypeError, lz4.block.LZ4BlockError):
+        return []
 
 
 def session_cookies(request):
@@ -35,10 +78,15 @@ def session_cookies(request):
         domain = ".instagram.com"
     elif site in ("youtube.com", "m.youtube.com", "youtu.be"):
         domain = ".youtube.com"
+    elif site == "turbo.cr":
+        domain = ".turbo.cr"
+    elif site == "vod.sooplive.com":
+        domain = ".sooplive.com"
     else:
-        raise ValueError("Browser sessions are supported for X, Instagram, and YouTube links.")
+        raise ValueError("Browser sessions are supported for X, Instagram, YouTube, Turbo, and SOOP Catch links.")
     if browser == "auto":
-        required = {".x.com": {"auth_token"}, ".instagram.com": {"sessionid"}, ".youtube.com": {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}}.get(domain)
+        required = {".x.com": {"auth_token"}, ".instagram.com": {"sessionid"}, ".youtube.com": {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"},
+                    ".sooplive.com": {"AuthTicket", "UserTicket"}}.get(domain)
         for candidate in ("firefox", "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "safari"):
             try:
                 cookies = session_cookies({**request, "browser": candidate})
@@ -53,6 +101,11 @@ def session_cookies(request):
         # Hyprland does not identify Chromium's libsecret store to the loader.
         if not cookies and sys.platform == "linux" and browser not in ("firefox", "safari"):
             cookies = load_cookies([browser, None, "gnomekeyring", None, domain])
+        if browser == "firefox" and domain == ".sooplive.com":
+            # SOOP's login tickets are session-only and absent from cookies.sqlite.
+            merged = {(cookie.domain, cookie.path, cookie.name): cookie for cookie in cookies}
+            merged.update({(cookie.domain, cookie.path, cookie.name): cookie for cookie in firefox_session_cookies(domain)})
+            cookies = list(merged.values())
         cookies = [cookie for cookie in cookies if not cookie.is_expired()]
         if request.get("action") == "browser-cookies":
             cookies = [cookie for cookie in cookies if host == cookie.domain.lstrip(".") or (cookie.domain_initial_dot and host.endswith("." + cookie.domain.lstrip(".")))]
@@ -145,6 +198,47 @@ class QuietLogger:
         pass
 
 
+class TurboIE(InfoExtractor):
+    _VALID_URL = r"https?://(?:www\.)?turbo\.cr/(?:d|v|embed)/(?P<id>[A-Za-z0-9_-]+)/?(?:[?#]|$)"
+
+    def _real_extract(self, url):
+        video_id = self._match_id(url)
+        page_url = f"https://turbo.cr/v/{video_id}"
+        headers = {"Referer": f"https://turbo.cr/embed/{video_id}"}
+        data = self._download_json("https://turbo.cr/api/sign", video_id, query={"v": video_id}, headers=headers)
+        if not isinstance(data, dict) or data.get("success") is not True:
+            raise ExtractorError("Turbo did not provide a video download. The file may be unavailable or require verification in your browser.", expected=True)
+        try:
+            media_url = web_url(data["url"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise ExtractorError("Turbo returned an invalid video download link.", expected=True) from None
+        webpage = self._download_webpage(page_url, video_id, fatal=False) or ""
+        return {
+            "id": video_id,
+            "title": data.get("original_filename") or data.get("filename") or video_id,
+            "url": media_url,
+            "ext": determine_ext(media_url, "mp4"),
+            "thumbnail": self._og_search_thumbnail(webpage, default=None),
+            "http_headers": headers,
+        }
+
+
+class SoopCatchIE(AfreecaTVIE):
+    IE_NAME = "soop:catch"
+    _VALID_URL = r"https?://vod\.sooplive\.com/player/(?P<id>\d+)/catch/?(?:[?#]|$)"
+
+
+def video_downloader(options, cookies=()):
+    import yt_dlp
+    downloader = yt_dlp.YoutubeDL(options, auto_init=False)
+    downloader.add_info_extractor(TurboIE())
+    downloader.add_info_extractor(SoopCatchIE())
+    downloader.add_default_info_extractors()
+    for cookie in cookies:
+        downloader.cookiejar.set_cookie(cookie)
+    return downloader
+
+
 def video_options(request):
     from yt_dlp.globals import plugin_dirs
     from yt_dlp.utils import DownloadError
@@ -169,10 +263,7 @@ def video_options(request):
 
 
 def video_inspect(request, cookies=()):
-    import yt_dlp
-    with yt_dlp.YoutubeDL(video_options(request)) as downloader:
-        for cookie in cookies:
-            downloader.cookiejar.set_cookie(cookie)
+    with video_downloader(video_options(request), cookies) as downloader:
         info = downloader.extract_info(request["url"], download=False)
     if info.get("entries"):
         entries = list(info["entries"])
@@ -220,16 +311,13 @@ def gallery_download(request, cookies=()):
 
 
 def video_download(request, cookies=()):
-    import yt_dlp
     options = video_options(request)
     options["outtmpl"] = str(Path(request["output"]) / "video.%(ext)s")
     if request.get("preview"):
         # Fetch the full low-resolution stream; the app makes a silent local copy.
         # FFmpeg network-range downloads crash in the bundled Linux build.
         options["format"] = "bv[height<=360]/b[height<=360]/bv/best"
-    with yt_dlp.YoutubeDL(options) as downloader:
-        for cookie in cookies:
-            downloader.cookiejar.set_cookie(cookie)
+    with video_downloader(options, cookies) as downloader:
         info = downloader.extract_info(request["url"], download=True)
     files = [p for p in Path(request["output"]).iterdir() if p.is_file() and p.suffix.lower() in (".mp4", ".webm", ".mkv", ".mov")]
     if len(files) != 1 or not files[0].stat().st_size or files[0].stat().st_size > MAX_FILE:

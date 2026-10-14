@@ -102,8 +102,10 @@ export async function openLibrary(root) {
   await cleanPlaintext();
   await collectVaults();
   let queue = Promise.resolve();
+  const listeners = new Set();
   return {
     root, protection,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     snapshot: () => structuredClone(data),
     publicSnapshot() {
       const snapshot = structuredClone(data);
@@ -150,6 +152,9 @@ export async function openLibrary(root) {
           // The committed cleanup journal is retried on startup after interruption.
           try { await cleanPlaintext(); await collectVaults(); }
           catch { warning = 'Encryption is saved. Restart Papan to finish removing old local copies.'; }
+          for (const listener of listeners) {
+            try { listener(); } catch (error) { console.error('Library change notification failed:', error.message); }
+          }
           return result;
         } catch (error) {
           const failures = [];

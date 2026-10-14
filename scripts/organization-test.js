@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { startFixture } from '../test/fixture.js';
@@ -23,7 +24,12 @@ const errors = [];
 async function launch(profile) {
   app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()],
     env: { ...process.env, PAPAN_DATA_DIR: profile, PAPAN_PYTHON_WORKER: process.env.PAPAN_EXECUTABLE ? '' : '1', ELECTRON_RUN_AS_NODE: undefined } });
-  page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
+  page = await app.firstWindow();
+  if (process.env.DISPLAY) {
+    const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
+    assert.equal(spawnSync('xprop', ['-display', process.env.DISPLAY, '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+  }
+  page.on('pageerror', error => errors.push(error.message));
   await expect(page.locator('#start-collecting')).toBeVisible();
   await app.evaluate(({ dialog }) => {
     globalThis.savePaths = []; globalThis.openPaths = [];
