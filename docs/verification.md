@@ -234,6 +234,27 @@ Checks on 29 September 2026 successfully discovered and downloaded selected publ
 | photo-sharing service album | Public sample album |
 | video service | Big Buck Bunny, Me at the zoo |
 
+## Android mobile boards (14 October 2026)
+
+The unreleased mobile-board pair uses Android **0.3.0 / version code 4**, based on `28025ab`, and the desktop patch based on **`beec3da` / 0.3.2**. The user selected standard Android Material design. Native Material 3 bottom navigation/rail, tabs, text fields, dialogs, destination sheets and media cards retain Papan's black/green identity. Android's standalone library adds atomic collection/pin storage and bounded link-first capture; desktop's ordinary/portable/encrypted formats and the separate local-library service retain their existing contracts.
+
+Linux x64, Node **26.11.1**, Electron **44.4.5**: `npm run check`, all **65** unit groups, source and actual packaged `test:phone`, and `test:settings` pass. The phone suites run on private X display `:97`, verify the window's display, and check opt-in persistence, per-phone password verification against actual encrypted collections, authenticated ranges, chosen destinations, receipts/restart/revocation and a 560×400 phone panel. Unit tests include multibyte bounded pagination and cancellation of an active encrypted 16 MiB stream after garbage collection and lock.
+
+Android **16 / API 36 x86_64** runs in a disposable headless emulator. SDK/build-tools **35 / 35.0.0**, JDK **21**, Gradle **8.13**, AGP **8.9.3** and Material Components **1.13.0** build and signature-verify normal/isolated APKs. The same 23 compiled application classes are byte-identical across normal and isolated variants; the ordinary APK embeds the exact source/resources and notices without signing keys. Only `com.papan.share.test` is installed. Instrumentation verifies its separate virtual display before interaction/capture and uses fresh virtual displays for responsive configurations.
+
+The actual receiver completes **three** image saves: default, explicitly chosen and protected destinations. Native flows check local collection create/rename/delete/cancel, image decoding, MP4 playback/deletion, edit/search/private-state reopen, failed capture/retry, paste/share/add/cancel, source intent, address recovery, offline/restart identity retention, password cancel/wrong/correct/save and desktop lock clearing details. An 85-pin collection checks newest-first 40/80 pages, retained scroll/pages, card recycling and search beyond loaded pages. Phone/tablet/200% text, 48dp navigation/FAB targets, native keyboard Tab/Enter and Android Back pass. The locked fixture still hides protected pins afterward; an explicit fixture-only unlock confirms both protected pins persist.
+
+Local evidence: `artifacts/android/ui/report.json`, `instrumentation.txt` and local/remote/narrow/tablet/large-text PNGs; `artifacts/phone-check.json`, `phone-package-check.json`, and `artifacts/mobile/` logs. Android's `artifacts/android/preview-integrity.json` and `contrast.json` record class/source integrity and custom color ratios. Reproduce with [development checks](development.md#checks) and the [Android guide](https://github.com/chelij/papan-android#device-checks).
+
+| Preview artifact/source | SHA-256 |
+| --- | --- |
+| `Papan-Android-0.3.0.apk` | `b30e84fb092813da5b8ffc48f5cecb3b7ed88d1873e0d331936a9db6a3214260` |
+| `Papan-Android-0.3.0-test.apk` | `f729f1189677dd32c899d22a288c40f9e3f884be7fbcefb50382fe301cfd1ff8` |
+| `Papan-mobile-preview-linux-x64.tar.gz` | `558e2ae6a695a8bbe9e04d63b98081767be6d61e9b4fb3f7f6cc65fe705c6570` |
+| Source and packaged `src/phone-library.js` | `0fe6030dfbaf2ac3693859f34a7c5e09de2d10e126479fe2903625fa16faf811` |
+
+These are local previews, not published releases or personal installations. ADB reverse tunnels connect the emulator to temporary loopback services. Physical-phone performance, Wi-Fi, optical QR, Android 8, iOS and Windows/macOS mobile-provider checks are not established. The source-browser intent is intercepted; a physical soft-keyboard/screen-reader session remains a device follow-up. Local capture supports ordinary HTML metadata and bounded direct images/video, rather than desktop's site-specific extractors. There is no implicit synchronization, local collection-password feature or `.papan` interchange. Legacy default delivery keeps its existing behavior. [Coordinator #5](https://github.com/chelij/papan/issues/5) and [Android #2](https://github.com/chelij/papan-android/issues/2) track the exact scope and remaining release/device checks.
+
 ## Limits of the evidence
 
 Fixture tests prove Papan's workflows without depending on live site availability. A native runner verifies that OS/architecture combination, not every Linux distribution, macOS version, or Windows desktop. Signed installation, notarization, automatic updates, multi-writer synchronization, and crash consistency across multiple external volumes are not claimed.

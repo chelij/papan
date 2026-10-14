@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
+import { createServer as createHTTPServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { openPhoneReceiver } from '../src/phone-receiver.js';
@@ -23,16 +25,24 @@ const adb = (...args) => {
 };
 assert.equal(adb('shell', 'pm', 'list', 'packages', packageName).trim(), '', 'Remove only the disposable test package before running again.');
 const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
-let fixture, receiver, installed = false, tunnel = false, port, saves = 0;
+let fixture, receiver, control, installed = false, port, saves = 0;
+const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
+for (const name of ['report.json', 'instrumentation.txt', 'failure.png', 'local.png', 'remote.png', 'unpaired.png', 'paired.png', 'narrow.png', 'tablet.png', 'large-text.png']) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
-  const library = await openLibrary(root), destination = newCollection('Android test inbox');
-  await library.mutate(draft => draft.collections.push(destination));
+  const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), many = newCollection('Many references');
+  await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); });
+  const signal = new AbortController().signal, data = await inspectLink(`${fixture.url}/photo.jpg`, signal), items = data.items.map(item => ({ ...item, id: randomUUID() }));
+  const seed = await materialize({ id: randomUUID(), collectionId: protectedBoard.id, sourceUrl: data.sourceUrl, engine: data.engine, title: 'Protected reference', notes: '', tags: [], items, coverId: items[0].id, createdAt: new Date().toISOString() }, root, false, signal);
+  await library.mutate(draft => draft.pins.push(seed));
+  await library.mutate(draft => library.protection.setPassword(draft, protectedBoard.id, 'mobile-test-password'));
   const reserving = createServer(); await new Promise(resolve => reserving.listen(0, '127.0.0.1', resolve));
   port = reserving.address().port; await new Promise(resolve => reserving.close(resolve));
   receiver = await openPhoneReceiver(root, {
+    library, unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)),
     addresses: () => [{ name: 'USB test', address: '127.0.0.1' }], collection: id => library.requireUnlocked(id),
+    codec: { encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()), decode: task => library.protection.decodeTask(task) },
     run: (task, signal, progress) => savePhoneLink(task, {
       snapshot: library.snapshot, requireUnlocked: id => library.requireUnlocked(id), inspect: inspectLink,
       save: async ({ pin }, signal) => {
@@ -42,34 +52,52 @@ try {
       },
     }, signal, progress),
   });
-  await receiver.configure({ enabled: true, host: '127.0.0.1', port, collectionId: destination.id });
+  const settings = { enabled: true, browsing: true, host: '127.0.0.1', port, collectionId: destination.id };
+  await receiver.configure(settings);
+  control = createHTTPServer(async (request, response) => {
+    try {
+      if (request.method !== 'POST') throw new Error('Use POST.');
+      if (request.url === '/disable') await receiver.configure({ ...settings, enabled: false });
+      else if (request.url === '/enable') await receiver.configure(settings);
+      else if (request.url === '/lock') await library.mutate(draft => library.protection.lock(draft, protectedBoard.id));
+      else throw new Error('Unknown test control.');
+      response.writeHead(200, { 'Content-Type': 'application/json' }); response.end('{}');
+    } catch (error) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: error.message })); }
+  });
+  await new Promise(resolve => control.listen(0, '127.0.0.1', resolve));
   const pairing = await receiver.pair();
   adb('install', '-r', path.join(androidRoot, 'dist', `Papan-Android-${androidVersion}-test.apk`)); installed = true;
   adb('shell', 'pm', 'grant', packageName, 'android.permission.CAMERA');
-  adb('reverse', `tcp:${port}`, `tcp:${port}`); tunnel = true;
+  for (const tunnelPort of [port, new URL(fixture.url).port, control.address().port]) { adb('reverse', `tcp:${tunnelPort}`, `tcp:${tunnelPort}`); tunnels.push(tunnelPort); }
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   const output = await new Promise((resolve, reject) => {
-    const child = spawn(process.env.PAPAN_ADB, [...adbArgs, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'pairLink', quote(pairing.url), '-e', 'shareUrl', quote(`${fixture.url}/wide.png`), '-e', 'cameraOnly', String(cameraOnly), `${packageName}/com.papan.share.MobileFlowTest`]);
+    const child = spawn(process.env.PAPAN_ADB, [...adbArgs, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'pairLink', quote(pairing.url), '-e', 'shareUrl', quote(`${fixture.url}/wide.png`), '-e', 'controlEndpoint', quote(`http://127.0.0.1:${control.address().port}`), '-e', 'cameraOnly', String(cameraOnly), `${packageName}/com.papan.share.MobileFlowTest`]);
     let out = ''; child.stdout.on('data', data => { out += data; }); child.stderr.on('data', data => { out += data; });
-    const timeout = setTimeout(() => { child.kill(); reject(new Error('Android instrumentation timed out.')); }, 90000);
+    const timeout = setTimeout(() => { child.kill(); reject(new Error('Android instrumentation timed out.')); }, 180000);
     child.on('error', error => { clearTimeout(timeout); reject(error); });
     child.on('close', code => { clearTimeout(timeout); code === 0 ? resolve(out) : reject(new Error(`Instrumentation exited ${code}: ${out}`)); });
   });
   await writeFile(path.join(artifactDir, 'instrumentation.txt'), output);
-  for (const name of ['unpaired.png', 'paired.png']) {
+  for (const name of ['unpaired.png', 'paired.png', 'local.png', 'remote.png', 'narrow.png', 'tablet.png', 'large-text.png', 'failure.png']) {
     const result = spawnSync(process.env.PAPAN_ADB, [...adbArgs, 'exec-out', 'run-as', packageName, 'cat', `files/${name}`], { timeout: 30000 });
     if (result.status === 0) await writeFile(path.join(artifactDir, name), result.stdout);
   }
   assert.match(output, /INSTRUMENTATION_RESULT: status=passed/, output);
-  assert.equal(saves, 1, 'One pasted URL should produce exactly one save.');
-  assert.equal(library.snapshot().pins.length, 1); assert.equal(library.snapshot().pins[0].collectionId, destination.id);
-  assert.ok(library.snapshot().pins[0].items[0].previewFile, 'Actual saved media must have a preview.');
+  assert.equal(saves, cameraOnly ? 1 : 3, 'Every chosen desktop destination should produce exactly one save.');
+  assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === destination.id).length, 1);
+  if (!cameraOnly) assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === chosen.id).length, 1);
+  if (!cameraOnly) {
+    assert.equal(library.protection.isUnlocked(protectedBoard.id), false, 'Native lock should leave the protected desktop collection locked.');
+    await library.mutate(draft => library.protection.unlock(draft, protectedBoard.id, 'mobile-test-password'));
+    assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === protectedBoard.id).length, 2);
+  }
+  assert.ok(library.snapshot().pins.find(pin => pin.collectionId === destination.id).items[0].previewFile, 'Actual saved media must have a preview.');
   assert.equal(receiver.snapshot().entries[0].state, 'saved');
   const checks = output.match(/INSTRUMENTATION_RESULT: checks=(.+)/)?.[1];
-  await writeFile(path.join(artifactDir, 'report.json'), JSON.stringify({ status: 'passed', clipboard: !cameraOnly, device: process.env.PAPAN_ANDROID_SERIAL || 'connected Android', displayId: Number(output.match(/displayId=(\d+)/)?.[1]), transport: 'USB reverse; Wi-Fi reachability not tested', saves, checks, cameraLimit: 'Live Camera2 frames and rotated QR fixtures verified separately; optical scan of desktop screen not exercised.' }, null, 2) + '\n');
-  console.log(checks); console.log('Real receiver saved one image into the disposable collection.');
+  await writeFile(path.join(artifactDir, 'report.json'), JSON.stringify({ status: 'passed', clipboard: !cameraOnly, device: process.env.PAPAN_ANDROID_SERIAL || 'connected Android', displayId: Number(output.match(/displayId=(\d+)/)?.[1]), transport: 'ADB reverse; Wi-Fi reachability not tested', saves, checks, cameraLimit: 'Live Camera2 frames and rotated QR fixtures verified separately; optical scan of desktop screen not exercised.' }, null, 2) + '\n');
+  console.log(checks); console.log(`Real receiver saved ${saves} images into the chosen disposable collections.`);
 } finally {
   if (installed) adb('uninstall', packageName);
-  if (tunnel) adb('reverse', '--remove', `tcp:${port}`);
-  await receiver?.stop(); await fixture?.close(); await rm(root, { recursive: true, force: true });
+  for (const tunnelPort of tunnels) adb('reverse', '--remove', `tcp:${tunnelPort}`);
+  await receiver?.stop(); if (control) await new Promise(resolve => { control.close(resolve); control.closeAllConnections(); }); await fixture?.close(); await rm(root, { recursive: true, force: true });
 }
