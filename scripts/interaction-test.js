@@ -33,9 +33,11 @@ const savedPinOrder = () => page.evaluate(id => window.papan.library().then(libr
 async function launch() {
   app = await electron.launch({ executablePath: process.env.PAPAN_EXECUTABLE, args: process.env.PAPAN_EXECUTABLE ? [] : [process.cwd()], env: { ...process.env, PAPAN_DATA_DIR: data, ELECTRON_RUN_AS_NODE: undefined } });
   page = await app.firstWindow();
-  if (process.env.DISPLAY === ':97') {
+  if (process.platform === 'linux') {
+    assert.match(process.env.DISPLAY || '', /^:(?:9[0-9]|[1-9][0-9]{2,})(?:\.0)?$/, 'test requires an isolated X display');
+    assert.equal(process.env.WAYLAND_DISPLAY, undefined, 'test must not connect to the desktop compositor');
     const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
-    assert.equal(spawnSync('xprop', ['-display', ':97', '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+    assert.equal(spawnSync('xprop', ['-display', process.env.DISPLAY, '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
   }
   page.on('pageerror', error => errors.push(error.message));
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible())).toBe(true);
@@ -58,6 +60,7 @@ try {
   await expect(page.locator('#storage-mode')).toHaveText('online');
 
   // Exercise native drag events with pointer movement, rather than dispatching a synthetic drop.
+  await expect.poll(() => page.locator('.pin').evaluateAll(nodes => nodes.every(node => parseFloat(node.style.width) > 0 && parseFloat(node.style.height) > 0))).toBe(true);
   const beforeDrag = await pinGeometry();
   const movingBox = await page.locator('.pin').first().boundingBox(), hoverBox = await page.locator('.pin').nth(2).boundingBox();
   await page.mouse.move(movingBox.x + 25, movingBox.y + 25);
