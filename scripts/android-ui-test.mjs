@@ -29,7 +29,7 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, pairingReceiver, control, installed = false, port, reconnectPort, pairingPort, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png', 'collection-menu.png', 'location-menu.png', 'location-focus-menu.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
@@ -79,6 +79,7 @@ try {
       else if (request.url === '/approve-pairing') { const pending = pairingReceiver.snapshot().pairingRequests[0]; assert.ok(pending); await pairingReceiver.approvePairRequest(pending.id); }
       else if (request.url === '/lock') await library.mutate(draft => library.protection.lock(draft, protectedBoard.id));
       else if (request.url === '/reorder') await library.mutate(draft => { const pins = draft.pins.filter(pin => pin.collectionId === many.id), moving = pins.at(-1); draft.pins.splice(draft.pins.indexOf(moving), 1); draft.pins.splice(draft.pins.indexOf(pins[0]), 0, moving); });
+      else if (request.url === '/reorder-collections') await library.mutate(draft => { const index = draft.collections.findIndex(collection => collection.id === portrait.id), first = draft.collections[0]; draft.collections[0] = draft.collections[index]; draft.collections[index] = first; });
       else throw new Error('Unknown test control.');
       response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result));
     } catch (error) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: error.message })); }
