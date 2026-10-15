@@ -166,7 +166,7 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       const digest = Buffer.from(hash(authorization.slice(7)), 'hex');
       const device = state.devices.find(d => timingSafeEqual(Buffer.from(d.keyHash, 'hex'), digest));
       if (!device) throw fail('Pairing was revoked. Pair this device again.', 401);
-      if (request.method === 'GET' && route === '/v1/capabilities') return send(200, { version: 1, collections: Boolean(browser && state.browsing), selectedDestination: Boolean(browser && state.browsing), reconnect: true, phoneInitiatedPairing: true });
+      if (request.method === 'GET' && route === '/v1/capabilities') return send(200, { version: 1, collections: Boolean(browser && state.browsing), selectedDestination: Boolean(browser && state.browsing), appSessionAccess: Boolean(browser && state.browsing), reconnect: true, phoneInitiatedPairing: true });
       if (browser && await browser.receive(request, response, device.id, body, send)) return;
       if (request.method === 'POST' && route === '/v1/shares') {
         const input = await body(request);
@@ -186,7 +186,7 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
           const destination = input.collectionId ?? draft.collectionId;
           if (input.collectionId !== undefined) {
             if (!browser) throw fail('Update desktop Papan to choose a collection from the phone.', 403);
-            browser.collectionFor(device.id, destination);
+            browser.collectionFor(device.id, destination, true, request.headers['x-papan-session'] || '');
           }
           try { collection(destination); } catch (error) { throw fail(error.message, 423); }
           if (draft.entries.length >= 5000 || draft.entries.filter(e => e.state !== 'saved').length >= 100) throw fail('Phone inbox is full. Resolve or dismiss entries in Papan first.', 429);

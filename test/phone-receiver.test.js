@@ -332,6 +332,40 @@ test('phone-initiated pairing requires desktop approval and keeps request secret
   } finally { await receiver?.stop(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('phone app sessions retain access until close and expose desktop frame proportions', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-session-')), library = await openLibrary(root), board = newCollection('Portrait'), square = newCollection('Square', { fit: 'cover' });
+  const folder = randomUUID(); await mkdir(path.join(root, 'media', folder)); await writeFile(path.join(root, 'media', folder, 'reference.png'), await sharp({ create: { width: 90, height: 160, channels: 3, background: 'red' } }).png().toBuffer());
+  const item = { id: randomUUID(), kind: 'image', width: 90, height: 160, url: 'https://example.com/portrait.png', previewFile: `${folder}/reference.png`, localFile: `${folder}/reference.png` }, pin = { id: randomUUID(), folder, collectionId: board.id, title: 'Portrait reference', sourceUrl: 'https://example.com/portrait', notes: '', tags: [], engine: 'page', offline: true, createdAt: new Date().toISOString(), items: [item], coverId: item.id };
+  await library.mutate(draft => { draft.collections.push(board, square); draft.pins.push(pin); });
+  await library.mutate(draft => library.protection.setPassword(draft, board.id, 'app-session-password'));
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, receiver = await openPhoneReceiver(root, { addresses, library, collection: id => library.requireUnlocked(id), unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)), run: async () => ({}) });
+  const now = Date.now; let clock = now();
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: square.id }); const config = await pair(receiver, endpoint);
+    const first = randomUUID(), second = randomUUID(), route = `/v1/collections/${board.id}`;
+    const call = (session, path, body) => fetch(endpoint + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json', ...(session ? { 'X-Papan-Session': session } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const list = async session => (await (await call(session, '/v1/collections')).json()).collections;
+    assert.equal((await list(first))[0].preview, undefined, 'locked content dimensions stay private');
+    assert.deepEqual((await list(first))[1].preview, { fit: 'cover', measuredCount: 0, aspectRatio: 1 });
+    assert.equal((await call('bad-session', '/v1/collections')).status, 400);
+    const unlocked = await (await call(first, route + '/unlock', { password: 'app-session-password' })).json(); assert.equal(unlocked.expiresIn, null);
+    assert.deepEqual((await list(first))[0].preview, { fit: 'contain', measuredCount: 1, aspectRatio: 90 / 160 });
+    Date.now = () => clock; clock += 16 * 60000;
+    assert.equal((await call(first, route + '/pins')).status, 200, 'an open app session does not time out after fifteen minutes');
+    assert.equal((await call(second, route + '/pins')).status, 423, 'a new app instance cannot reuse the prior grant');
+    assert.equal((await call('', route + '/pins')).status, 423, 'the device key alone cannot reuse app-session access');
+    assert.equal((await call(second, '/v1/shares', { id: randomUUID(), url: 'https://example.com/new', collectionId: board.id })).status, 423);
+    assert.equal((await call(first, '/v1/shares', { id: randomUUID(), url: 'https://example.com/new', collectionId: board.id })).status, 202);
+    await call(second, '/v1/access/clear', {}); assert.equal((await call(first, route + '/pins')).status, 200, 'stale close requests cannot revoke a different app session');
+    await call(first, '/v1/access/clear', {}); assert.equal((await call(first, route + '/pins')).status, 423);
+    await call(second, route + '/unlock', { password: 'app-session-password' }); await call(first, '/v1/access/clear', {});
+    assert.equal((await call(second, route + '/pins')).status, 200);
+    await library.mutate(draft => library.protection.lock(draft, board.id)); assert.equal((await call(second, route + '/pins')).status, 423, 'desktop lock still revokes the app grant');
+    const legacyResponse = await call('', route + '/unlock', { password: 'app-session-password' }), legacy = await legacyResponse.json(); assert.equal(legacyResponse.status, 200, JSON.stringify(legacy)); assert.equal(legacy.expiresIn, 900);
+    clock += 16 * 60000; assert.equal((await call('', route + '/pins')).status, 423, 'legacy clients retain their fifteen-minute lifetime');
+  } finally { Date.now = now; await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('paired identity proves the current endpoint and survives automatic interface address changes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-address-')); let receiver, address = '127.0.0.1';
   const chosenPort = await port(), target = randomUUID();
