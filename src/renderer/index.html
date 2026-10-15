@@ -95,6 +95,12 @@
     <div class="settings-card-heading"><h2 class="phone-section-title">incoming links</h2><button id="phone-clear" class="text-button" type="button">clear saved receipts</button></div>
     <div id="phone-entries" role="list"></div><p id="phone-error" class="error" role="alert"></p>
   </dialog>
+  <dialog id="phone-approval-dialog" aria-labelledby="phone-approval-title">
+    <div class="dialog-top"><h1 id="phone-approval-title">pair this phone?</h1></div>
+    <p id="phone-approval-name"></p><p class="hint">Approve only if this code matches the code shown in Papan on your phone. Pairing uses HTTP on your trusted local network.</p>
+    <p id="phone-approval-code" class="phone-approval-code"></p><p id="phone-approval-error" class="error" role="alert"></p>
+    <div class="dialog-footer"><button id="phone-approval-deny" class="quiet-button" type="button">decline</button><button id="phone-approval-allow" class="primary-button" type="button">allow pairing</button></div>
+  </dialog>
   <dialog id="collections-dialog" aria-labelledby="collections-title">
     <div class="dialog-top"><h1 id="collections-title">open a collection</h1><button class="icon-button" data-close="collections-dialog" aria-label="Close collection browser">×</button></div>
     <button id="browse-collection" class="quiet-button">browse for a collection…</button>

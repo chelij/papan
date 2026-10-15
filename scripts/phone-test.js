@@ -32,9 +32,9 @@ async function launch() {
   assert.equal(await app.evaluate(() => process.env.DISPLAY), process.env.DISPLAY);
   assert.equal(await app.evaluate(({ app }) => app.commandLine.getSwitchValue('ozone-platform')), 'x11');
   page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
-  if (process.env.DISPLAY === ':97') {
+  if (process.platform === 'linux') {
     const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
-    assert.equal(spawnSync('xprop', ['-display', ':97', '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+    assert.equal(spawnSync('xprop', ['-display', process.env.DISPLAY, '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
   }
   await page.waitForFunction(() => Boolean(window.papan));
 }
@@ -69,6 +69,20 @@ try {
   const receiver = await page.evaluate(() => window.papan.phoneReceiver());
   const destination = receiver.collectionId;
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].name, 'Inbox');
+  const approvalId = randomUUID().replaceAll('-', '');
+  const approval = await fetch(`${endpoint}/v1/pair-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: approvalId, name: 'Phone approval check' }) });
+  const waiting = await approval.json(); assert.equal(approval.status, 202);
+  await expect(page.locator('#phone-approval-dialog')).toBeVisible();
+  await expect(page.locator('#phone-approval-code')).toHaveText(waiting.code);
+  assert.equal((await page.evaluate(() => window.papan.phoneReceiver())).devices.length, 0);
+  await page.getByRole('button', { name: 'allow pairing', exact: true }).click();
+  await expect(page.locator('#phone-approval-dialog')).not.toBeVisible();
+  const approved = await (await fetch(`${endpoint}/v1/pair-requests/${approvalId}`)).json();
+  const consented = await fetch(`${endpoint}/v1/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: new URL(approved.pairingLink).hash.slice(1), name: 'Phone approval check' }) });
+  const consentConfig = await consented.json(); assert.equal(consented.status, 201);
+  await expect(page.locator('#phone-devices')).toContainText('Phone approval check');
+  await page.evaluate(id => window.papan.revokePhone(id), consentConfig.deviceId);
+  checks.push('Phone-initiated pairing displays a matching six-digit code in a native desktop consent dialog; no device is added before Allow, and the approved one-time link pairs through the actual receiver');
   await page.getByRole('button', { name: 'pair a phone', exact: true }).click();
   await expect(page.locator('#phone-qr')).toBeVisible();
   const link = await page.locator('#phone-pair-url').inputValue();

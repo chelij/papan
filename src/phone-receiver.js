@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
-import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, randomInt, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFile, writeFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import QRCode from 'qrcode';
 import { webURL } from './media.js';
 import { phoneLibrary } from './phone-library.js';
+import { advertisePhoneReceiver } from './phone-discovery.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const shareId = /^[A-Za-z0-9_-]{8,100}$/;
@@ -31,23 +32,30 @@ const pairingScript = `const code=location.hash.slice(1);if(/^[a-f0-9]{32}$/.tes
 export async function openPhoneReceiver(root, { run, collection, publish = () => {}, addresses = localAddresses,
   codec = { encode: task => task, decode: task => task }, available = () => true, library, unlock }) {
   const file = path.join(root, 'phone-receiver.json');
-  let state = { version: 1, serverId: randomUUID(), enabled: false, browsing: false, host: '', port: 47778, collectionId: '', devices: [], entries: [] };
+  let state = { version: 1, serverId: randomUUID(), enabled: false, browsing: false, host: '', networkInterface: '', port: 47778, collectionId: '', devices: [], entries: [] };
   try {
     const saved = JSON.parse(await readFile(file, 'utf8'));
     if (saved.version !== 1 || !uuid.test(saved.serverId) || typeof saved.enabled !== 'boolean' || !Number.isInteger(saved.port) || saved.port < 1024 || saved.port > 65535 || typeof saved.host !== 'string' || typeof saved.collectionId !== 'string' || !Array.isArray(saved.devices) || saved.devices.length > 20 || !Array.isArray(saved.entries) || saved.entries.length > 5000 ||
       saved.devices.some(d => !uuid.test(d.id) || typeof d.name !== 'string' || !/^[a-f0-9]{64}$/.test(d.keyHash)) ||
       saved.entries.some(e => !uuid.test(e.id) || !['queued', 'running', 'failed', 'saved'].includes(e.state) || e.kind !== 'capture' || (!e.payload && !e.encrypted))) throw new Error('Invalid phone inbox.');
     if (saved.browsing !== undefined && typeof saved.browsing !== 'boolean') throw new Error('Invalid phone browsing setting.');
+    if (saved.networkInterface !== undefined && (typeof saved.networkInterface !== 'string' || saved.networkInterface.length > 100)) throw new Error('Invalid receiver network interface.');
     state = { ...state, ...saved };
     state.entries = state.entries.map(entry => entry.state === 'running' ? { ...entry, state: 'queued' } : entry);
   } catch (error) { if (error.code !== 'ENOENT') throw new Error(`Could not read the phone inbox. Your files were preserved. ${error.message}`); }
   let server = null, networkError = '', writes = Promise.resolve(), active = null, stopped = false, pairing = null;
   let pairWindow = 0, pairAttempts = 0;
+  let identityWindow = 0, identityAttempts = 0, stopAdvertising = null, networkUpdate = Promise.resolve();
+  const pairingRequests = new Map();
+  const pendingRequests = () => {
+    for (const [id, request] of pairingRequests) if (Date.now() >= request.expiresAt) pairingRequests.delete(id);
+    return [...pairingRequests.values()].filter(request => !request.url).map(({ id, name, code, expiresAt }) => ({ id, name, code, expiresAt }));
+  };
   const browser = library && unlock ? phoneLibrary(root, { library, unlock, available,
     allowed: id => state.enabled && state.browsing && state.devices.some(device => device.id === id),
     endpoint: () => `http://${state.host}:${state.port}` }) : null;
   const snapshot = () => ({ enabled: state.enabled, running: Boolean(server?.listening), host: state.host, port: state.port,
-    browsing: state.browsing, collectionId: state.collectionId, addresses: addresses(), error: networkError, pairingExpiresAt: pairing?.expiresAt || null,
+    browsing: state.browsing, serverId: state.serverId, pairingRequests: pendingRequests(), collectionId: state.collectionId, addresses: addresses(), error: networkError, pairingExpiresAt: pairing?.expiresAt || null,
     devices: state.devices.map(({ id, name, createdAt }) => ({ id, name, createdAt })),
     entries: state.entries.map(stored => {
       const task = codec.decode(stored);
@@ -109,6 +117,34 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       const route = request.url;
       if (request.method === 'GET' && route === '/pair') return send(200, pairingPage, 'text/html; charset=utf-8');
       if (request.method === 'GET' && route === '/pair.js') return send(200, pairingScript, 'text/javascript');
+      if (request.method === 'POST' && route === '/v1/identity') {
+        if (Date.now() - identityWindow >= 60000) { identityWindow = Date.now(); identityAttempts = 0; }
+        if (++identityAttempts > 60) throw fail('Wait before reconnecting again.', 429);
+        const input = await body(request), device = state.devices.find(value => value.id === input.deviceId);
+        if (input.serverId !== state.serverId || !device || typeof input.nonce !== 'string' || !/^[a-f0-9]{64}$/.test(input.nonce)) throw fail('No matching pairing.', 401);
+        const endpoint = `http://${state.host}:${state.port}`;
+        const proof = createHmac('sha256', Buffer.from(device.keyHash, 'hex')).update(`papan-reconnect-v1\n${state.serverId}\n${device.id}\n${endpoint}\n${input.nonce}`).digest('hex');
+        return send(200, { version: 1, serverId: state.serverId, deviceId: device.id, endpoint, nonce: input.nonce, proof });
+      }
+      if (request.method === 'POST' && route === '/v1/pair-requests') {
+        if (Date.now() - pairWindow >= 60000) { pairWindow = Date.now(); pairAttempts = 0; }
+        if (++pairAttempts > 20) throw fail('Too many pairing requests. Wait a minute.', 429);
+        const input = await body(request); pendingRequests();
+        if (typeof input.id !== 'string' || !/^[a-f0-9]{32}$/.test(input.id) || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 80) throw fail('Invalid pairing request.');
+        const existing = pairingRequests.get(input.id);
+        if (existing && existing.name !== input.name.trim()) throw fail('Pairing request changed.', 409);
+        if (!existing && pairingRequests.size >= 5) throw fail('Desktop has too many pending requests. Try again shortly.', 429);
+        const pending = existing || { id: input.id, name: input.name.trim(), code: String(randomInt(100000, 1000000)), expiresAt: Date.now() + 120000 };
+        pairingRequests.set(input.id, pending); announce();
+        return send(202, { status: 'pending', code: pending.code, expiresAt: pending.expiresAt, serverId: state.serverId });
+      }
+      const pendingRoute = /^\/v1\/pair-requests\/([a-f0-9]{32})(\/cancel)?$/.exec(route);
+      if (pendingRoute && (!pendingRoute[2] && ['GET', 'DELETE'].includes(request.method) || pendingRoute[2] && request.method === 'POST')) {
+        pendingRequests(); const pending = pairingRequests.get(pendingRoute[1]);
+        if (!pending) throw fail('Pairing request expired or was declined.', 404);
+        if (request.method !== 'GET') { if (request.method === 'POST') await body(request); pairingRequests.delete(pending.id); if (pairing?.requestId === pending.id) pairing = null; announce(); return send(200, { cancelled: true }); }
+        return send(200, { status: pending.url ? 'approved' : 'pending', code: pending.code, expiresAt: pending.expiresAt, serverId: state.serverId, ...(pending.url ? { pairingLink: pending.url } : {}) });
+      }
       if (request.method === 'POST' && route === '/v1/pair') {
         if (Date.now() - pairWindow >= 60000) { pairWindow = Date.now(); pairAttempts = 0; }
         if (++pairAttempts > 20) throw fail('Too many pairing attempts. Wait a minute.', 429);
@@ -119,6 +155,7 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
           if (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 80) throw fail('Enter a device name.');
           const token = randomBytes(32).toString('base64url'), device = { id: randomUUID(), name: input.name.trim(), keyHash: hash(token), createdAt: new Date().toISOString() };
           draft.devices.push(device);
+          if (pairing.requestId) pairingRequests.delete(pairing.requestId);
           pairing = null;
           return { version: 1, endpoint: `http://${draft.host}:${draft.port}`, token, deviceId: device.id, serverId: draft.serverId };
         });
@@ -129,7 +166,7 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       const digest = Buffer.from(hash(authorization.slice(7)), 'hex');
       const device = state.devices.find(d => timingSafeEqual(Buffer.from(d.keyHash, 'hex'), digest));
       if (!device) throw fail('Pairing was revoked. Pair this device again.', 401);
-      if (request.method === 'GET' && route === '/v1/capabilities') return send(200, { version: 1, collections: Boolean(browser && state.browsing), selectedDestination: Boolean(browser && state.browsing) });
+      if (request.method === 'GET' && route === '/v1/capabilities') return send(200, { version: 1, collections: Boolean(browser && state.browsing), selectedDestination: Boolean(browser && state.browsing), reconnect: true, phoneInitiatedPairing: true });
       if (browser && await browser.receive(request, response, device.id, body, send)) return;
       if (request.method === 'POST' && route === '/v1/shares') {
         const input = await body(request);
@@ -170,6 +207,8 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
   }
   async function closeServer() {
     pairing = null;
+    pairingRequests.clear();
+    if (stopAdvertising) { const stop = stopAdvertising; stopAdvertising = null; await stop(); }
     if (server) { const closing = server; server = null; closing.closeAllConnections(); await new Promise(resolve => closing.close(resolve)); }
   }
   async function listen() {
@@ -181,9 +220,22 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       opening.requestTimeout = 10000; opening.headersTimeout = 10000; opening.maxHeadersCount = 32; opening.setTimeout(10000, socket => socket.destroy());
       await new Promise((resolve, reject) => { opening.once('error', reject); opening.listen(state.port, state.host, resolve); });
       opening.on('error', error => { networkError = error.message; announce(); }); server = opening;
+      stopAdvertising = advertisePhoneReceiver(state, () => {});
     } catch (error) { networkError = `Could not receive from phone: ${error.message}`; }
   }
-  await persist(state); await listen();
+  state.networkInterface ||= addresses().find(item => item.address === state.host)?.name || '';
+  const rebind = () => networkUpdate = networkUpdate.catch(() => {}).then(async () => { await closeServer(); if (!stopped) await listen(); });
+  async function refreshNetwork() {
+    if (stopped || !state.enabled) return;
+    const current = addresses();
+    if (current.some(item => item.address === state.host)) { if (!server?.listening) { await rebind(); announce(); } return; }
+    const replacement = current.find(item => item.name === state.networkInterface) || (current.length === 1 ? current[0] : null);
+    if (!replacement) { if (server) { await rebind(); announce(); } return; }
+    await mutate(draft => { draft.host = replacement.address; draft.networkInterface = replacement.name; });
+    browser?.invalidate(); await rebind(); announce(); void pump();
+  }
+  await persist(state); await refreshNetwork(); if (!server && state.enabled) await listen();
+  const networkTimer = setInterval(() => { void refreshNetwork().catch(() => {}); }, 3000); networkTimer.unref();
   return {
     snapshot, pump, get busy() { return Boolean(active); },
     async configure(input) {
@@ -191,9 +243,9 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       if (typeof browsing !== 'boolean' || browsing && !browser) throw fail('Phone browsing is unavailable.');
       if (typeof input.enabled !== 'boolean' || typeof input.collectionId !== 'string' || typeof input.host !== 'string' || !Number.isInteger(input.port) || input.port < 1024 || input.port > 65535 || input.enabled && !addresses().some(item => item.address === input.host)) throw fail('Choose a local network address and a port between 1024 and 65535.');
       if (input.enabled) collection(input.collectionId, false);
-      await mutate(draft => Object.assign(draft, { enabled: input.enabled, browsing, host: input.host, port: input.port, collectionId: input.collectionId }));
+      await mutate(draft => Object.assign(draft, { enabled: input.enabled, browsing, host: input.host, networkInterface: addresses().find(item => item.address === input.host)?.name || '', port: input.port, collectionId: input.collectionId }));
       browser?.invalidate();
-      await closeServer(); await listen(); announce(); void pump(); return snapshot();
+      await rebind(); announce(); void pump(); return snapshot();
     },
     async pair() {
       if (!server?.listening) throw new Error('Enable the local receiver first.');
@@ -202,6 +254,14 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       const qr = await QRCode.toDataURL(url, { width: 240, margin: 2, errorCorrectionLevel: 'M' });
       announce(); return { url, qr, expiresAt: pairing.expiresAt };
     },
+    async approvePairRequest(id) {
+      pendingRequests(); const request = pairingRequests.get(id);
+      if (!server?.listening || !request || request.url) throw fail('This pairing request is no longer waiting.');
+      pairing = { code: randomBytes(16).toString('hex'), expiresAt: request.expiresAt, requestId: id };
+      request.url = `http://${state.host}:${state.port}/pair#${pairing.code}`;
+      announce(); return snapshot();
+    },
+    async rejectPairRequest(id) { const request = pairingRequests.get(id); if (request) { pairingRequests.delete(id); if (pairing?.requestId === id) pairing = null; announce(); } return snapshot(); },
     async revoke(id) { await mutate(draft => { draft.devices = draft.devices.filter(d => d.id !== id); }); browser?.clear(id); },
     async retry(id) { await mutate(draft => { const index = draft.entries.findIndex(e => e.id === id), entry = index < 0 ? null : codec.decode(draft.entries[index]); if (!entry || entry.state !== 'failed') throw fail('Only failed shares can be retried.'); if (entry.encrypted) throw fail('Unlock the destination collection before retrying.'); draft.entries[index] = { ...entry, state: 'queued', error: '' }; }); void pump(); },
     async dismiss(id) { await mutate(draft => { const entry = draft.entries.find(e => e.id === id); if (!entry || entry.state === 'running' || entry.id === active?.id) throw fail('Wait for this share to finish first.'); draft.entries = draft.entries.filter(e => e.id !== id); }); },
@@ -212,6 +272,6 @@ export async function openPhoneReceiver(root, { run, collection, publish = () =>
       await persist(state, data);
       return async () => { await persist(before, undefined, true); };
     },
-    async stop() { stopped = true; browser?.stop(); const saving = active; saving?.controller.abort(); await closeServer(); await saving?.done; await writes; },
+    async stop() { stopped = true; clearInterval(networkTimer); await networkUpdate; browser?.stop(); const saving = active; saving?.controller.abort(); await closeServer(); await saving?.done; await writes; },
   };
 }

@@ -25,10 +25,10 @@ const adb = (...args) => {
 };
 assert.equal(adb('shell', 'pm', 'list', 'packages', packageName).trim(), '', 'Remove only the disposable test package before running again.');
 const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
-let fixture, receiver, control, installed = false, port, saves = 0;
+let fixture, receiver, pairingReceiver, control, installed = false, port, reconnectPort, pairingPort, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
@@ -55,14 +55,24 @@ try {
   });
   const settings = { enabled: true, browsing: true, host: '127.0.0.1', port, collectionId: destination.id };
   await receiver.configure(settings);
+  const unusedPort = async () => { const socket = createServer(); await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve)); const value = socket.address().port; await new Promise(resolve => socket.close(resolve)); return value; };
+  reconnectPort = await unusedPort(); pairingPort = await unusedPort();
+  const pairingRoot = path.join(root, 'nearby'); await mkdir(pairingRoot);
+  const pairingLibrary = await openLibrary(pairingRoot), pairingCollection = newCollection('Nearby inbox');
+  await pairingLibrary.mutate(draft => draft.collections.push(pairingCollection));
+  pairingReceiver = await openPhoneReceiver(pairingRoot, { addresses: () => [{ name: 'USB test', address: '127.0.0.1' }], library: pairingLibrary, unlock: async (id, password) => pairingLibrary.mutate(draft => pairingLibrary.protection.unlock(draft, id, password)), collection: () => {}, run: async () => ({}) });
+  await pairingReceiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: pairingPort, collectionId: pairingCollection.id });
   control = createHTTPServer(async (request, response) => {
     try {
+      let result = {};
       if (request.method !== 'POST') throw new Error('Use POST.');
       if (request.url === '/disable') await receiver.configure({ ...settings, enabled: false });
       else if (request.url === '/enable') await receiver.configure(settings);
+      else if (request.url === '/move') { settings.port = reconnectPort; await receiver.configure(settings); }
+      else if (request.url === '/approve-pairing') { const pending = pairingReceiver.snapshot().pairingRequests[0]; assert.ok(pending); await pairingReceiver.approvePairRequest(pending.id); }
       else if (request.url === '/lock') await library.mutate(draft => library.protection.lock(draft, protectedBoard.id));
       else throw new Error('Unknown test control.');
-      response.writeHead(200, { 'Content-Type': 'application/json' }); response.end('{}');
+      response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result));
     } catch (error) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: error.message })); }
   });
   await new Promise(resolve => control.listen(0, '127.0.0.1', resolve));
@@ -85,12 +95,12 @@ try {
     put('style-demo.json', Buffer.from(JSON.stringify(samples)));
   }
   adb('shell', 'pm', 'grant', packageName, 'android.permission.CAMERA');
-  for (const tunnelPort of [port, new URL(fixture.url).port, control.address().port]) { adb('reverse', `tcp:${tunnelPort}`, `tcp:${tunnelPort}`); tunnels.push(tunnelPort); }
+  for (const tunnelPort of [port, reconnectPort, pairingPort, new URL(fixture.url).port, control.address().port]) { adb('reverse', `tcp:${tunnelPort}`, `tcp:${tunnelPort}`); tunnels.push(tunnelPort); }
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   const output = await new Promise((resolve, reject) => {
-    const child = spawn(process.env.PAPAN_ADB, [...adbArgs, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'pairLink', quote(pairing.url), '-e', 'shareUrl', quote(`${fixture.url}/wide.png`), '-e', 'controlEndpoint', quote(`http://127.0.0.1:${control.address().port}`), '-e', 'cameraOnly', String(cameraOnly), `${packageName}/com.papan.share.MobileFlowTest`]);
+    const child = spawn(process.env.PAPAN_ADB, [...adbArgs, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'pairLink', quote(pairing.url), '-e', 'shareUrl', quote(`${fixture.url}/wide.png`), '-e', 'controlEndpoint', quote(`http://127.0.0.1:${control.address().port}`), '-e', 'pairEndpoint', quote(`http://127.0.0.1:${pairingPort}`), '-e', 'pairServerId', pairingReceiver.snapshot().serverId, '-e', 'reconnectEndpoint', quote(`http://127.0.0.1:${reconnectPort}`), '-e', 'cameraOnly', String(cameraOnly), `${packageName}/com.papan.share.MobileFlowTest`]);
     let out = ''; child.stdout.on('data', data => { out += data; }); child.stderr.on('data', data => { out += data; });
-    const timeout = setTimeout(() => { child.kill(); reject(new Error('Android instrumentation timed out.')); }, 180000);
+    const timeout = setTimeout(() => { child.kill(); reject(new Error('Android instrumentation timed out.')); }, 240000);
     child.on('error', error => { clearTimeout(timeout); reject(error); });
     child.on('close', code => { clearTimeout(timeout); code === 0 ? resolve(out) : reject(new Error(`Instrumentation exited ${code}: ${out}`)); });
   });
@@ -100,7 +110,7 @@ try {
     if (result.status === 0 && result.stdout.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) await writeFile(path.join(artifactDir, name), result.stdout);
   }
   assert.match(output, /INSTRUMENTATION_RESULT: status=passed/, output);
-  if (!cameraOnly) for (const name of ['connections-feedback.png', 'connections-large-text.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native Connections feedback capture missing: ${name}`);
+  if (!cameraOnly) for (const name of ['nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native pairing/feedback capture missing: ${name}`);
   if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) for (const name of screens.filter(name => name.startsWith('style-'))) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native screenshot missing: ${name}`);
   assert.equal(saves, cameraOnly ? 1 : 3, 'Every chosen desktop destination should produce exactly one save.');
   assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === destination.id).length, 1);
@@ -118,5 +128,5 @@ try {
 } finally {
   if (installed) adb('uninstall', packageName);
   for (const tunnelPort of tunnels) adb('reverse', '--remove', `tcp:${tunnelPort}`);
-  await receiver?.stop(); if (control) await new Promise(resolve => { control.close(resolve); control.closeAllConnections(); }); await fixture?.close(); await rm(root, { recursive: true, force: true });
+  await receiver?.stop(); await pairingReceiver?.stop(); if (control) await new Promise(resolve => { control.close(resolve); control.closeAllConnections(); }); await fixture?.close(); await rm(root, { recursive: true, force: true });
 }

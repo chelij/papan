@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash, createHmac } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { openPhoneReceiver, privateAddress } from '../src/phone-receiver.js';
@@ -15,8 +15,9 @@ async function port() {
   const server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const result = server.address().port; await new Promise(resolve => server.close(resolve)); return result;
 }
-async function until(check) {
-  for (let i = 0; i < 200; i++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
+async function until(check, timeout = 2000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
   assert.fail('Phone inbox did not reach the expected state.');
 }
 const addresses = () => [{ name: 'isolated test', address: '127.0.0.1' }];
@@ -250,4 +251,66 @@ test('phone browsing is opt-in, open-only, password scoped, and selected destina
   assert.equal(library.snapshot().pins.find(pin => pin.id === largePins[0].id).text.length, 20000, 'phone snippets preserve the full desktop text');
   const stored = await readFile(path.join(root, 'phone-receiver.json'), 'utf8');
   for (const secret of ['phone-password', first.token, 'example.com/chosen']) assert.equal(stored.includes(secret), false);
+});
+
+test('phone-initiated pairing requires desktop approval and keeps request secrets out of stored state', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-approval-')); let receiver;
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`;
+  const call = (route, input, method = input ? 'POST' : 'GET') => fetch(endpoint + route, { method, headers: { 'Content-Type': 'application/json' }, ...(input ? { body: JSON.stringify(input) } : {}) });
+  try {
+    receiver = await openPhoneReceiver(root, { addresses, collection: () => {}, run: async () => ({}) });
+    await receiver.configure({ enabled: true, host: '127.0.0.1', port: chosenPort, collectionId: randomUUID() });
+    const id = randomBytes(16).toString('hex'), input = { id, name: 'Test phone' };
+    assert.equal((await call('/v1/pair-requests', { ...input, id: '../invalid' })).status, 400);
+    const pending = await (await call('/v1/pair-requests', input)).json();
+    assert.match(pending.code, /^\d{6}$/); assert.equal(pending.status, 'pending');
+    assert.equal((await (await call('/v1/pair-requests', input)).json()).code, pending.code);
+    assert.equal(receiver.snapshot().devices.length, 0);
+    assert.equal((await (await call(`/v1/pair-requests/${id}`)).json()).pairingLink, undefined);
+    await receiver.approvePairRequest(id);
+    assert.equal(receiver.snapshot().devices.length, 0);
+    const approved = await (await call(`/v1/pair-requests/${id}`)).json();
+    assert.equal(approved.status, 'approved'); assert.equal(approved.code, pending.code);
+    const result = await call('/v1/pair', { code: new URL(approved.pairingLink).hash.slice(1), name: input.name });
+    const paired = await result.json(); assert.equal(result.status, 201);
+    assert.equal(receiver.snapshot().devices.length, 1);
+    assert.equal((await call(`/v1/pair-requests/${id}`)).status, 404);
+    const disk = await readFile(path.join(root, 'phone-receiver.json'), 'utf8');
+    assert.equal(disk.includes(paired.token), false); assert.equal(disk.includes(id), false); assert.equal(disk.includes(approved.pairingLink), false);
+    assert.equal(JSON.stringify(receiver.snapshot()).includes(paired.token), false);
+    const denied = randomBytes(16).toString('hex'); await call('/v1/pair-requests', { id: denied, name: 'Declined phone' });
+    await receiver.rejectPairRequest(denied); assert.equal((await call(`/v1/pair-requests/${denied}`)).status, 404);
+    const cancelled = randomBytes(16).toString('hex'); await call('/v1/pair-requests', { id: cancelled, name: 'Cancelled phone' });
+    await receiver.approvePairRequest(cancelled);
+    assert.equal((await call(`/v1/pair-requests/${cancelled}/cancel`, {})).status, 200);
+    assert.equal((await call(`/v1/pair-requests/${cancelled}`)).status, 404);
+    assert.equal(receiver.snapshot().devices.length, 1);
+  } finally { await receiver?.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('paired identity proves the current endpoint and survives automatic interface address changes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-address-')); let receiver, address = '127.0.0.1';
+  const chosenPort = await port(), target = randomUUID();
+  const endpoint = () => `http://${address}:${chosenPort}`;
+  const identify = (config, nonce = randomBytes(32).toString('hex')) => fetch(endpoint() + '/v1/identity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverId: config.serverId, deviceId: config.deviceId, nonce }) });
+  try {
+    receiver = await openPhoneReceiver(root, { addresses: () => [{ name: 'test-interface', address }], collection: () => {}, run: async () => ({}) });
+    await receiver.configure({ enabled: true, host: address, port: chosenPort, collectionId: target });
+    const config = await pair(receiver, endpoint()), nonce = randomBytes(32).toString('hex');
+    const first = await (await identify(config, nonce)).json();
+    const key = createHash('sha256').update(config.token).digest();
+    const expected = value => createHmac('sha256', key).update(`papan-reconnect-v1\n${config.serverId}\n${config.deviceId}\n${value.endpoint}\n${value.nonce}`).digest('hex');
+    assert.equal(first.proof, expected(first)); assert.equal(first.nonce, nonce); assert.equal(first.endpoint, endpoint());
+    assert.notEqual((await (await identify(config)).json()).proof, first.proof);
+    assert.equal((await identify({ ...config, serverId: randomUUID() })).status, 401);
+    assert.equal((await identify(config, 'invalid')).status, 401);
+    address = '127.0.0.2';
+    await until(() => receiver.snapshot().host === address && receiver.snapshot().running, 5000);
+    const moved = await (await identify(config, nonce)).json();
+    assert.equal(moved.endpoint, endpoint()); assert.equal(moved.proof, expected(moved)); assert.notEqual(moved.proof, first.proof);
+    assert.equal(receiver.snapshot().devices[0].id, config.deviceId); assert.equal(receiver.snapshot().collectionId, target);
+    await receiver.stop(); receiver = await openPhoneReceiver(root, { addresses: () => [{ name: 'test-interface', address }], collection: () => {}, run: async () => ({}) });
+    assert.equal((await (await identify(config)).json()).proof.length, 64);
+    await receiver.revoke(config.deviceId); assert.equal((await identify(config)).status, 401);
+  } finally { await receiver?.stop(); await rm(root, { recursive: true, force: true }); }
 });
