@@ -20,10 +20,12 @@ const androidRoot = path.resolve(process.env.PAPAN_ANDROID_DIR || '../papan-andr
 const androidVersion = JSON.parse(await readFile(path.join(androidRoot, 'package.json'), 'utf8')).version;
 const testApk = path.join(androidRoot, 'dist', `Papan-Android-${androidVersion}-test.apk`), apkSha256 = createHash('sha256').update(await readFile(testApk)).digest('hex');
 const adbArgs = process.env.PAPAN_ANDROID_SERIAL ? ['-s', process.env.PAPAN_ANDROID_SERIAL] : [];
+assert.match(process.env.PAPAN_ANDROID_SERIAL || '', /^emulator-\d+$/, 'Select a disposable emulator; personal phones are not test targets.');
 const adb = (...args) => {
   const result = spawnSync(process.env.PAPAN_ADB, [...adbArgs, ...args], { encoding: 'utf8', timeout: 30000 });
   assert.equal(result.status, 0, result.stderr); return result.stdout;
 };
+assert.equal(adb('shell', 'getprop', 'ro.kernel.qemu').trim(), '1', 'Android UI tests require an emulator.');
 assert.equal(adb('shell', 'pm', 'list', 'packages', packageName).trim(), '', 'Remove only the disposable test package before running again.');
 const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, pairingReceiver, control, installed = false, port, reconnectPort, pairingPort, saves = 0;
