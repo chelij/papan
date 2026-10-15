@@ -34,7 +34,7 @@ try {
   fixture = await startFixture();
   const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), many = newCollection('Many references');
   await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); });
-  const signal = new AbortController().signal, data = await inspectLink(`${fixture.url}/photo.jpg`, signal), items = data.items.map(item => ({ ...item, id: randomUUID() }));
+  const signal = new AbortController().signal, data = await inspectLink(`${fixture.url}/portrait.mp4`, signal), items = data.items.map(item => ({ ...item, id: randomUUID() }));
   const seed = await materialize({ id: randomUUID(), collectionId: protectedBoard.id, sourceUrl: data.sourceUrl, engine: data.engine, title: 'Protected reference', notes: '', tags: [], items, coverId: items[0].id, createdAt: new Date().toISOString() }, root, false, signal);
   await library.mutate(draft => draft.pins.push(seed));
   await library.mutate(draft => library.protection.setPassword(draft, protectedBoard.id, 'mobile-test-password'));

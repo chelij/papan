@@ -4,6 +4,7 @@ import { mediaLocation } from './collection-files.js';
 import { fileResponse } from './file-response.js';
 import { unlockVault } from './vault.js';
 import { timingSafeEqual } from 'node:crypto';
+import { videoThumbnail } from './phone-thumbnails.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
@@ -49,7 +50,7 @@ export function phoneLibrary(root, { library, unlock, allowed, available, endpoi
   function pinView(pin) {
     const result = { ...pick(pin, ['id', 'collectionId', 'title', 'sourceUrl', 'notes', 'tags', 'text', 'author', 'coverId', 'createdAt']),
       items: pin.items.filter(item => !item.poseFor).map(item => ({ ...pick(item, ['id', 'kind', 'text', 'width', 'height', 'duration']),
-        ...(hasPreview(item) ? { previewUrl: mediaUrl(pin, item, 'preview') } : {}),
+        ...(hasPreview(item) ? { previewUrl: mediaUrl(pin, item, 'preview'), thumbnailUrl: mediaUrl(pin, item, 'thumbnail') } : {}),
         ...(hasOriginal(item) ? { originalUrl: mediaUrl(pin, item, 'original') } : {}) })) };
     let remaining = 32000;
     for (const value of [result, ...result.items]) if (typeof value.text === 'string') { const text = value.text.slice(0, Math.min(16000, remaining)); result.textTruncated ||= text.length < value.text.length; value.text = text; remaining -= text.length; }
@@ -108,13 +109,20 @@ export function phoneLibrary(root, { library, unlock, allowed, available, endpoi
       }
       const pin = library.snapshot().pins.find(pin => pin.id === pinId && pin.collectionId === id), item = pin?.items.find(item => item.id === itemId && !item.poseFor);
       const variant = url.searchParams.get('variant') || 'preview';
-      if (!['original', 'preview'].includes(variant)) throw fail('Choose original or preview media.');
+      if (!['original', 'preview', 'thumbnail'].includes(variant)) throw fail('Choose original, preview or thumbnail media.');
       if (!item || !(variant === 'original' ? hasOriginal(item) : hasPreview(item))) throw fail('Saved media is unavailable.', 404);
       const controller = new AbortController(), stream = { deviceId, collectionId: id, pinId, itemId, controller, response };
       streams.add(stream); response.once('close', () => { controller.abort(); streams.delete(stream); });
       try {
         const file = library.protection.media(item, variant === 'original') || mediaLocation(root, item, variant === 'original');
         if (!file) throw fail('Saved media is unavailable.', 404);
+        if (variant === 'thumbnail' && item.kind === 'video') {
+          const bytes = request.method === 'HEAD' ? null : await videoThumbnail(file, controller.signal);
+          collectionFor(deviceId, id); controller.signal.throwIfAborted();
+          response.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store', 'connection': 'close',
+            'x-content-type-options': 'nosniff', ...(bytes ? { 'content-length': bytes.length } : {}) });
+          response.end(bytes); return true;
+        }
         const extension = typeof file === 'string' ? path.extname(file).toLowerCase() : file.ext;
         const result = await fileResponse(file, { method: request.method, headers: new Headers(request.headers), signal: controller.signal }, types[extension] || 'application/octet-stream');
         collectionFor(deviceId, id); controller.signal.throwIfAborted();
