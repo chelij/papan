@@ -152,8 +152,17 @@ try {
   const selected = await browse('/v1/shares', { id: randomUUID(), url: `${fixture.url}/wide.png`, collectionId: chosen.id });
   assert.equal(selected.status, 202);
   await expect.poll(() => page.evaluate(id => window.papan.library().then(library => library.pins.filter(pin => pin.collectionId === id).length), chosen.id)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.papan.phoneReceiver().then(receiver => receiver.entries.some(entry => ['queued', 'running'].includes(entry.state))))).toBe(false);
+  await page.evaluate(id => window.papan.protectCollection({ id, password: 'second-phone-password' }), chosen.id);
+  await page.evaluate(id => window.papan.lockCollection({ id }), chosen.id);
+  assert.equal((await browse(`/v1/collections/${destination}/pins`)).status, 200, 'another collection protection change must retain the first phone grant');
+  assert.equal((await browse(`/v1/collections/${chosen.id}/unlock`, { password: 'second-phone-password' })).status, 200);
+  for (const id of [destination, chosen.id, destination, chosen.id]) assert.equal((await browse(`/v1/collections/${id}/pins`)).status, 200, 'switching protected collections must retain each password grant through real desktop IPC');
   await page.evaluate(id => window.papan.lockCollection({ id }), destination);
   assert.equal((await browse(`/v1/collections/${destination}/pins`)).status, 423);
+  assert.equal((await browse(`/v1/collections/${chosen.id}/pins`)).status, 200, 'locking one desktop collection must preserve the other phone grant');
+  await browse('/v1/access/clear', {}); assert.equal((await browse(`/v1/collections/${chosen.id}/pins`)).status, 423);
+  checks.push('Real desktop protection IPC retains independent phone grants across unlocking/switching collections; locking one collection and clearing access still deny the affected reads');
   checks.push('Native browsing opt-in persists through restart; phone password checks unlock the real encrypted library; authenticated ranges and a chosen destination save work through production IPC');
   assert.deepEqual(errors, []);
   await mkdir('artifacts', { recursive: true });
