@@ -28,7 +28,7 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, control, installed = false, port, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
@@ -100,6 +100,7 @@ try {
     if (result.status === 0 && result.stdout.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) await writeFile(path.join(artifactDir, name), result.stdout);
   }
   assert.match(output, /INSTRUMENTATION_RESULT: status=passed/, output);
+  if (!cameraOnly) for (const name of ['connections-feedback.png', 'connections-large-text.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native Connections feedback capture missing: ${name}`);
   if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) for (const name of screens.filter(name => name.startsWith('style-'))) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native screenshot missing: ${name}`);
   assert.equal(saves, cameraOnly ? 1 : 3, 'Every chosen desktop destination should produce exactly one save.');
   assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === destination.id).length, 1);
