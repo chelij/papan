@@ -28,16 +28,19 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, pairingReceiver, control, installed = false, port, reconnectPort, pairingPort, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
-  const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), many = newCollection('Many references');
-  await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); });
+  const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), portrait = newCollection('Portrait frames'), many = newCollection('Many references');
+  await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, portrait, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); });
   const signal = new AbortController().signal, data = await inspectLink(`${fixture.url}/portrait.mp4`, signal), items = data.items.map(item => ({ ...item, id: randomUUID() }));
   const seed = await materialize({ id: randomUUID(), collectionId: protectedBoard.id, sourceUrl: data.sourceUrl, engine: data.engine, title: 'Protected reference', notes: '', tags: [], items, coverId: items[0].id, createdAt: new Date().toISOString() }, root, false, signal);
   await library.mutate(draft => draft.pins.push(seed));
   await library.mutate(draft => library.protection.setPassword(draft, protectedBoard.id, 'mobile-test-password'));
+  const portraitPin = await materialize({ ...seed, id: randomUUID(), folder: undefined, collectionId: portrait.id, title: 'Portrait video', items: data.items.map(item => ({ ...item, id: randomUUID() })) }, root, false, signal);
+  portraitPin.coverId = portraitPin.items[0].id;
+  await library.mutate(draft => { for (let i = 0; i < 4; i++) { const itemId = randomUUID(); draft.pins.push({ ...portraitPin, id: randomUUID(), title: 'Portrait video ' + i, coverId: itemId, items: [{ ...portraitPin.items[0], id: itemId }] }); } });
   const reserving = createServer(); await new Promise(resolve => reserving.listen(0, '127.0.0.1', resolve));
   port = reserving.address().port; await new Promise(resolve => reserving.close(resolve));
   receiver = await openPhoneReceiver(root, {
@@ -111,6 +114,7 @@ try {
   }
   assert.match(output, /INSTRUMENTATION_RESULT: status=passed/, output);
   if (!cameraOnly) for (const name of ['nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native pairing/feedback capture missing: ${name}`);
+  if (!cameraOnly) for (const name of ['video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native media capture missing: ${name}`);
   if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) for (const name of screens.filter(name => name.startsWith('style-'))) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native screenshot missing: ${name}`);
   assert.equal(saves, cameraOnly ? 1 : 3, 'Every chosen desktop destination should produce exactly one save.');
   assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === destination.id).length, 1);

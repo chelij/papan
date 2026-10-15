@@ -120,3 +120,5 @@ Before tagging, update `package.json`, the lockfile, the README's versioned down
 ## README demo
 
 `npm run demo` downloads credited public-domain artwork, creates an isolated profile, captures the real interface, and removes the profile. Images used for capture stay under ignored `artifacts/demo/`; only screenshots and attribution are committed. Nothing from this demo is seeded into an installed app.
+
+The mobile viewing regression uses the isolated Android suite against a real receiver: full-screen fitted local/encrypted video playback, native play/pause/seek, vertical pin swipes, portrait desktop frames, repeated thumbnail binding reusing the identical decoded bitmap, background return retaining authorization, close/reopen requiring a password, and desktop lock clearing views/cache. The app-session HTTP unit group also checks access beyond fifteen minutes, new-process identity rejection, session-scoped clear and legacy expiry. The existing guarded packaged phone suite checks the provider's unchanged native settings/consent paths.
