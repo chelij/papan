@@ -30,7 +30,13 @@ jobs:
       - run: npm ci
       - run: npm run setup
       - run: npm run check
+      - name: Add the receiver test's second loopback address (macOS)
+        if: runner.os == 'macOS'
+        run: sudo ifconfig lo0 alias 127.0.0.2
       - run: npm test
+      - name: Remove the receiver test's loopback alias (macOS)
+        if: always() && runner.os == 'macOS'
+        run: sudo ifconfig lo0 -alias 127.0.0.2
       - name: Native desktop test tools (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y x11-utils
