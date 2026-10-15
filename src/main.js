@@ -317,6 +317,8 @@ function installHandlers() {
     }
   });
   handle('pair-phone', () => phoneReceiver.pair());
+  handle('approve-phone-pairing', id => phoneReceiver.approvePairRequest(id));
+  handle('reject-phone-pairing', id => phoneReceiver.rejectPairRequest(id));
   handle('revoke-phone', id => phoneReceiver.revoke(id));
   handle('retry-phone-share', id => phoneReceiver.retry(id));
   handle('dismiss-phone-share', id => phoneReceiver.dismiss(id));
