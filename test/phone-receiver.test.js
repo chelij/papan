@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { randomUUID, randomBytes, createHash, createHmac } from 'node:crypto';
 import os from 'node:os';
@@ -10,6 +10,8 @@ import { savePhoneLink } from '../src/phone-save.js';
 import { openLibrary, newCollection } from '../src/library.js';
 import { inspectLink, materialize } from '../src/media.js';
 import { startFixture } from './fixture.js';
+import sharp from 'sharp';
+import { videoThumbnail } from '../src/phone-thumbnails.js';
 
 async function port() {
   const server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -251,6 +253,48 @@ test('phone browsing is opt-in, open-only, password scoped, and selected destina
   assert.equal(library.snapshot().pins.find(pin => pin.id === largePins[0].id).text.length, 20000, 'phone snippets preserve the full desktop text');
   const stored = await readFile(path.join(root, 'phone-receiver.json'), 'utf8');
   for (const secret of ['phone-password', first.token, 'example.com/chosen']) assert.equal(stored.includes(secret), false);
+});
+
+test('phone video thumbnails decode saved and encrypted previews without changing playback or protected access', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-thumbnails-')), library = await openLibrary(root), board = newCollection('Videos');
+  const folder = randomUUID(), itemId = randomUUID(), original = await readFile(new URL('./media/portrait.mp4', import.meta.url));
+  const item = { id: itemId, kind: 'video', previewFile: `${folder}/preview.mp4` };
+  await mkdir(path.join(root, 'media', folder)); await writeFile(path.join(root, 'media', item.previewFile), original);
+  await library.mutate(draft => { draft.collections.push(board); draft.pins.push({ id: randomUUID(), collectionId: board.id, title: 'Video', sourceUrl: 'https://example.com/video', engine: 'page', folder, coverId: itemId, items: [item] }); });
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`;
+  const receiver = await openPhoneReceiver(root, { addresses, library, unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)), collection: id => library.requireUnlocked(id), run: async () => ({}) });
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: board.id });
+    const config = await pair(receiver, endpoint), headers = { Authorization: 'Bearer ' + config.token };
+    const page = await (await fetch(`${endpoint}/v1/collections/${board.id}/pins`, { headers })).json(), media = page.pins[0].items[0];
+    assert.match(media.thumbnailUrl, /variant=thumbnail$/);
+    assert.equal((await fetch(media.thumbnailUrl)).status, 401);
+    const thumbnail = await fetch(media.thumbnailUrl, { headers }); assert.equal(thumbnail.status, 200);
+    assert.equal(thumbnail.headers.get('content-type'), 'image/jpeg'); assert.equal(thumbnail.headers.get('cache-control'), 'no-store');
+    const plain = Buffer.from(await thumbnail.arrayBuffer()), metadata = await sharp(plain).metadata();
+    assert.equal(metadata.format, 'jpeg'); assert(metadata.width > 0 && metadata.width <= 480 && metadata.height > 0 && metadata.height <= 480);
+    const pixels = await sharp(plain).removeAlpha().raw().toBuffer(); let red = 0;
+    for (let i = 0; i < pixels.length; i += 3) if (pixels[i] > 220 && pixels[i + 1] < 50 && pixels[i + 2] < 50) red++;
+    assert(red / (pixels.length / 3) > .99, 'thumbnail scaling must preserve the red fixture without pink/green corruption');
+    const playback = await fetch(media.previewUrl, { headers: { ...headers, Range: 'bytes=0-15' } });
+    assert.equal(playback.status, 206); assert.deepEqual(Buffer.from(await playback.arrayBuffer()), original.subarray(0, 16));
+    await library.mutate(draft => library.protection.setPassword(draft, board.id, 'thumbnail-password'));
+    assert.equal((await fetch(media.thumbnailUrl, { headers })).status, 423);
+    const unlock = await fetch(`${endpoint}/v1/collections/${board.id}/unlock`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'thumbnail-password' }) });
+    assert.equal(unlock.status, 200);
+    const decrypted = Buffer.from(await (await fetch(media.previewUrl, { headers })).arrayBuffer());
+    assert.equal(createHash('sha256').update(decrypted).digest('hex'), createHash('sha256').update(original).digest('hex'), 'Encryption changed the saved video preview.');
+    const encrypted = await fetch(media.thumbnailUrl, { headers }); assert.equal(encrypted.status, 200);
+    const encryptedBytes = Buffer.from(await encrypted.arrayBuffer());
+    assert.equal(createHash('sha256').update(encryptedBytes).digest('hex'), createHash('sha256').update(plain).digest('hex'), 'Plain and protected JPEG encodings differ.');
+    const head = await fetch(media.thumbnailUrl, { method: 'HEAD', headers }); assert.equal(head.status, 200); assert.equal((await head.arrayBuffer()).byteLength, 0);
+    const remaining = await readdir(path.join(root, 'media', folder)).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+    assert.equal(remaining.some(name => /\.(jpe?g|png)$/i.test(name)), false, 'thumbnail generation must not write decrypted covers to disk');
+    await library.mutate(draft => library.protection.lock(draft, board.id));
+    assert.equal((await fetch(media.thumbnailUrl, { headers })).status, 423);
+    await receiver.revoke(config.deviceId); assert.equal((await fetch(media.thumbnailUrl, { headers })).status, 401);
+    const cancelled = new AbortController(); cancelled.abort(); await assert.rejects(videoThumbnail('unused.mp4', cancelled.signal), /abort/i);
+  } finally { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('phone-initiated pairing requires desktop approval and keeps request secrets out of stored state', async () => {
