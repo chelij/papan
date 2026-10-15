@@ -1,5 +1,11 @@
 # Verification
 
+## Native interaction layout readiness (15 October 2026)
+
+The macOS ARM64 [PR run at `b072080`](https://github.com/chelij/papan/actions/runs/38691855545) failed its first native pin-reordering assertion. The interaction test measured card bounds immediately after switching collections, before the scheduled grid layout. Unpositioned cards overlap, so the recorded destination can point back at the dragged card; an unrelated initial layout also satisfied the old geometry-change assertion. The test now waits for every card's computed layout dimensions before recording its baseline and pointer coordinates. Linux checks also verify the actual private X display before interaction, rather than checking only display `:97`.
+
+An isolated Linux Electron check held the collection's animation frames for 300 ms. The original test reproduced the same unchanged pin order; the fixed test passed the complete native interaction suite with the identical delay, then passed again without the delay. Syntax and all **65** unit groups pass. Evidence is retained in `artifacts/interaction-delayed-layout-original.log`, `interaction-delayed-layout-fixed.log`, `interaction-fixed.log`, `macos-drag-syntax-check.log` and `macos-drag-unit-tests.log`. This changes only the test harness; production behavior, saved formats, receiver contracts and companion compatibility evidence are unchanged. Native Windows/macOS results are recorded by the [PR workflow checks](https://github.com/chelij/papan/pull/6/checks); the local reproduction establishes only Linux behavior.
+
 ## v0.3.2 release
 
 [Papan v0.3.2](https://github.com/chelij/papan/releases/tag/v0.3.2) was published on 14 October 2026 from `139edae3e5c6e64c5ee8dd0b0605ed75efdc8264`. It includes startup error/retry handling, opt-in local app connections, deferred/batched preview resume with unfocused playback retained, and video-import/session improvements. Local Linux checks pass syntax and all **64** unit groups, with garbage collection enabled during active encrypted-transfer cancellation. Earlier unchanged playback, visibility, slideshow and native headless discovery evidence remains valid. Installed-app checks establish real blur/hide/showInactive behavior and full video import, decoding, byte ranges and seeking using a disposable profile.
