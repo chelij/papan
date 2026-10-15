@@ -33,20 +33,22 @@ const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'v
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
-  const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), portrait = newCollection('Portrait frames'), many = newCollection('Many references');
-  await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, portrait, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); });
+  const library = await openLibrary(root), destination = newCollection('Android test inbox'), chosen = newCollection('Android chosen'), protectedBoard = newCollection('Protected test'), secondProtected = newCollection('Another protected'), portrait = newCollection('Portrait frames'), many = newCollection('Many references');
+  await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, secondProtected, portrait, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); const itemId = randomUUID(); draft.pins.push({ id: randomUUID(), collectionId: secondProtected.id, title: 'Second private reference', sourceUrl: 'https://example.com/second-private', notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Second private reference' }] }); });
   const signal = new AbortController().signal, data = await inspectLink(`${fixture.url}/portrait.mp4`, signal), items = data.items.map(item => ({ ...item, id: randomUUID() }));
   const seed = await materialize({ id: randomUUID(), collectionId: protectedBoard.id, sourceUrl: data.sourceUrl, engine: data.engine, title: 'Protected reference', notes: '', tags: [], items, coverId: items[0].id, createdAt: new Date().toISOString() }, root, false, signal);
   seed.items.push({ id: randomUUID(), kind: 'text', text: 'Protected attachment fixture' });
   await library.mutate(draft => draft.pins.push(seed));
   await library.mutate(draft => library.protection.setPassword(draft, protectedBoard.id, 'mobile-test-password'));
+  await library.mutate(draft => library.protection.setPassword(draft, secondProtected.id, 'second-mobile-password'));
   const portraitPin = await materialize({ ...seed, id: randomUUID(), folder: undefined, collectionId: portrait.id, title: 'Portrait video', items: data.items.map(item => ({ ...item, id: randomUUID() })) }, root, false, signal);
   portraitPin.coverId = portraitPin.items[0].id;
   await library.mutate(draft => { for (let i = 0; i < 4; i++) { const itemId = randomUUID(); draft.pins.push({ ...portraitPin, id: randomUUID(), title: 'Portrait video ' + i, coverId: itemId, items: [{ ...portraitPin.items[0], id: itemId }] }); } });
   const reserving = createServer(); await new Promise(resolve => reserving.listen(0, '127.0.0.1', resolve));
   port = reserving.address().port; await new Promise(resolve => reserving.close(resolve));
+  let protectionBusy = false;
   receiver = await openPhoneReceiver(root, {
-    library, unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)),
+    library, available: () => !protectionBusy, unlock: async (id, password) => { protectionBusy = true; try { await library.mutate(draft => library.protection.unlock(draft, id, password)); } finally { protectionBusy = false; } },
     addresses: () => [{ name: 'USB test', address: '127.0.0.1' }], collection: id => library.requireUnlocked(id),
     codec: { encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()), decode: task => library.protection.decodeTask(task) },
     run: (task, signal, progress) => savePhoneLink(task, {
@@ -76,6 +78,7 @@ try {
       else if (request.url === '/move') { settings.port = reconnectPort; await receiver.configure(settings); }
       else if (request.url === '/approve-pairing') { const pending = pairingReceiver.snapshot().pairingRequests[0]; assert.ok(pending); await pairingReceiver.approvePairRequest(pending.id); }
       else if (request.url === '/lock') await library.mutate(draft => library.protection.lock(draft, protectedBoard.id));
+      else if (request.url === '/reorder') await library.mutate(draft => { const pins = draft.pins.filter(pin => pin.collectionId === many.id), moving = pins.at(-1); draft.pins.splice(draft.pins.indexOf(moving), 1); draft.pins.splice(draft.pins.indexOf(pins[0]), 0, moving); });
       else throw new Error('Unknown test control.');
       response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result));
     } catch (error) { response.writeHead(400, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: error.message })); }

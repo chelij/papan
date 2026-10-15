@@ -30,7 +30,7 @@ export function phoneLibrary(root, { library, unlock, allowed, available, endpoi
     for (const [deviceId, entries] of grants) {
       for (const [id, grant] of entries) {
         try { const collection = collectionFor(deviceId, id, false); if (!collection.vault || !session(deviceId, collection, grant.session)) entries.delete(id); }
-        catch { entries.delete(id); }
+        catch (error) { if (error.status !== 503) entries.delete(id); }
       }
       if (!entries.size) grants.delete(deviceId);
     }
@@ -114,7 +114,7 @@ export function phoneLibrary(root, { library, unlock, allowed, available, endpoi
         const query = (url.searchParams.get('q') || '').trim().toLowerCase();
         if (query.length > 500) throw fail('Keep searches within 500 characters.');
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) throw fail('Invalid page.');
-        const pins = library.snapshot().pins.filter(pin => pin.collectionId === id && (!query || [pin.title, pin.sourceUrl, pin.notes, pin.text, ...(pin.tags || [])].join(' ').toLowerCase().includes(query))).reverse();
+        const pins = library.snapshot().pins.filter(pin => pin.collectionId === id && (!query || [pin.title, pin.sourceUrl, pin.notes, pin.text, ...(pin.tags || [])].join(' ').toLowerCase().includes(query)));
         const page = []; let size = 0;
         for (const pin of pins.slice(offset, offset + limit)) { const value = pinView(pin), bytes = Buffer.byteLength(JSON.stringify(value)); if (page.length && size + bytes > 1024 * 1024) break; page.push(value); size += bytes; }
         send(200, { collectionId: id, pins: page, nextOffset: offset + page.length < pins.length ? offset + page.length : null }); return true;

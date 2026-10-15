@@ -332,6 +332,47 @@ test('phone-initiated pairing requires desktop approval and keeps request secret
   } finally { await receiver?.stop(); await rm(root, { recursive: true, force: true }); }
 });
 
+test('phone boards preserve desktop pin order across pages, search and rearrangement', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-order-')), library = await openLibrary(root), board = newCollection('Ordered'), other = newCollection('Other');
+  const pins = Array.from({ length: 85 }, (_, index) => { const item = { id: randomUUID(), kind: 'text', text: 'Reference' }; return { id: randomUUID(), collectionId: board.id, title: `Reference ${index}`, sourceUrl: `https://example.com/${index}`, notes: index % 2 ? 'match' : '', tags: [], engine: 'page', offline: false, items: [item], coverId: item.id, createdAt: new Date(2026, 0, 1 + (84 - index)).toISOString() }; });
+  await library.mutate(draft => { draft.collections.push(board, other); draft.pins.push(...pins); });
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, receiver = await openPhoneReceiver(root, { addresses, library, collection: id => library.requireUnlocked(id), unlock: async () => {}, run: async () => ({}) });
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: board.id }); const config = await pair(receiver, endpoint);
+    const page = async (offset = 0, query = '') => { const response = await fetch(`${endpoint}/v1/collections/${board.id}/pins?offset=${offset}&limit=40&q=${query}`, { headers: { Authorization: `Bearer ${config.token}` } }); assert.equal(response.status, 200); return response.json(); };
+    const all = async query => { let offset = 0; const ids = []; do { const result = await page(offset, query); ids.push(...result.pins.map(pin => pin.id)); offset = result.nextOffset; } while (offset !== null); return ids; };
+    assert.deepEqual(await all(''), pins.map(pin => pin.id), 'phone pages must match desktop array order, independent of timestamps');
+    await library.mutate(draft => { const moving = draft.pins.pop(); draft.pins.splice(1, 0, moving); });
+    const moved = library.snapshot().pins.filter(pin => pin.collectionId === board.id);
+    assert.deepEqual(await all(''), moved.map(pin => pin.id), 'refresh must follow manual desktop rearrangement');
+    assert.deepEqual(await all('match'), moved.filter(pin => pin.notes === 'match').map(pin => pin.id), 'search must retain desktop relative order');
+  } finally { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('unlocking another protected collection retains independent phone grants during protection updates', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-grants-')), library = await openLibrary(root), boards = [newCollection('First private'), newCollection('Second private')];
+  await library.mutate(draft => { draft.collections.push(...boards); for (const board of boards) { const item = { id: randomUUID(), kind: 'text', text: 'Private reference' }; draft.pins.push({ id: randomUUID(), collectionId: board.id, title: board.name, sourceUrl: `https://example.com/${board.id}`, notes: '', tags: [], engine: 'page', offline: false, items: [item], coverId: item.id }); } });
+  for (const board of boards) await library.mutate(draft => library.protection.setPassword(draft, board.id, 'collection-password'));
+  await library.mutate(draft => { for (const board of boards) library.protection.lock(draft, board.id); });
+  let busy = false;
+  const change = async operation => { busy = true; try { await library.mutate(operation); } finally { busy = false; } };
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, receiver = await openPhoneReceiver(root, { addresses, library, available: () => !busy, collection: (id, unlocked = true) => unlocked ? library.requireUnlocked(id) : library.snapshot().collections.find(board => board.id === id), unlock: (id, password) => change(draft => library.protection.unlock(draft, id, password)), run: async () => ({}) });
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: boards[0].id }); const config = await pair(receiver, endpoint), appSession = randomUUID();
+    const call = (route, body, session = appSession) => fetch(endpoint + route, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${config.token}`, 'X-Papan-Session': session, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const pins = board => call(`/v1/collections/${board.id}/pins`);
+    for (const board of boards) assert.equal((await call(`/v1/collections/${board.id}/unlock`, { password: 'collection-password' })).status, 200);
+    for (const board of boards) assert.equal((await pins(board)).status, 200, 'unlocking the second board must retain the first grant');
+    busy = true; assert.equal((await pins(boards[0])).status, 503); await library.mutate(() => {}); busy = false;
+    for (const board of boards) assert.equal((await pins(board)).status, 200, 'temporary protection unavailability must not clear grants');
+    await change(draft => library.protection.lock(draft, boards[0].id));
+    assert.equal((await pins(boards[0])).status, 423, 'actual desktop locking still blocks the affected collection');
+    assert.equal((await pins(boards[1])).status, 200, 'locking one collection must preserve the other grant');
+    assert.equal((await call(`/v1/collections/${boards[1].id}/pins`, undefined, randomUUID())).status, 423, 'another app session cannot reuse either grant');
+    await call('/v1/access/clear', {}); assert.equal((await pins(boards[1])).status, 423, 'app close still clears all grants for its session');
+  } finally { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('phone app sessions retain access until close and expose desktop frame proportions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-session-')), library = await openLibrary(root), board = newCollection('Portrait'), square = newCollection('Square', { fit: 'cover' });
   const folder = randomUUID(); await mkdir(path.join(root, 'media', folder)); await writeFile(path.join(root, 'media', folder, 'reference.png'), await sharp({ create: { width: 90, height: 160, channels: 3, background: 'red' } }).png().toBuffer());
