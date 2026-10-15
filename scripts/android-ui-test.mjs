@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createServer as createHTTPServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { openPhoneReceiver } from '../src/phone-receiver.js';
@@ -18,6 +18,7 @@ const packageName = 'com.papan.share.test';
 const cameraOnly = process.env.PAPAN_ANDROID_CAMERA_ONLY === '1';
 const androidRoot = path.resolve(process.env.PAPAN_ANDROID_DIR || '../papan-android');
 const androidVersion = JSON.parse(await readFile(path.join(androidRoot, 'package.json'), 'utf8')).version;
+const testApk = path.join(androidRoot, 'dist', `Papan-Android-${androidVersion}-test.apk`), apkSha256 = createHash('sha256').update(await readFile(testApk)).digest('hex');
 const adbArgs = process.env.PAPAN_ANDROID_SERIAL ? ['-s', process.env.PAPAN_ANDROID_SERIAL] : [];
 const adb = (...args) => {
   const result = spawnSync(process.env.PAPAN_ADB, [...adbArgs, ...args], { encoding: 'utf8', timeout: 30000 });
@@ -36,6 +37,7 @@ try {
   await library.mutate(draft => { draft.collections.push(destination, chosen, protectedBoard, portrait, many, { ...newCollection('Closed test'), closed: true }); draft.pins.push(...Array.from({ length: 85 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: many.id, title: 'Fixture reference ' + index, sourceUrl: `https://example.com/fixture/${index}`, notes: '', tags: [], engine: 'page', offline: false, coverId: itemId, items: [{ id: itemId, kind: 'text', text: 'Pagination fixture' }] }; })); });
   const signal = new AbortController().signal, data = await inspectLink(`${fixture.url}/portrait.mp4`, signal), items = data.items.map(item => ({ ...item, id: randomUUID() }));
   const seed = await materialize({ id: randomUUID(), collectionId: protectedBoard.id, sourceUrl: data.sourceUrl, engine: data.engine, title: 'Protected reference', notes: '', tags: [], items, coverId: items[0].id, createdAt: new Date().toISOString() }, root, false, signal);
+  seed.items.push({ id: randomUUID(), kind: 'text', text: 'Protected attachment fixture' });
   await library.mutate(draft => draft.pins.push(seed));
   await library.mutate(draft => library.protection.setPassword(draft, protectedBoard.id, 'mobile-test-password'));
   const portraitPin = await materialize({ ...seed, id: randomUUID(), folder: undefined, collectionId: portrait.id, title: 'Portrait video', items: data.items.map(item => ({ ...item, id: randomUUID() })) }, root, false, signal);
@@ -80,7 +82,7 @@ try {
   });
   await new Promise(resolve => control.listen(0, '127.0.0.1', resolve));
   const pairing = await receiver.pair();
-  adb('install', '-r', path.join(androidRoot, 'dist', `Papan-Android-${androidVersion}-test.apk`)); installed = true;
+  adb('install', '-r', testApk); installed = true;
   if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) {
     const demoRoot = path.resolve(process.env.PAPAN_ANDROID_DEMO_ROOT), catalog = JSON.parse(await readFile(path.join(demoRoot, 'docs/demo/catalog.json'), 'utf8'));
     const samples = catalog.slice(0, 8).map(art => {
@@ -127,7 +129,8 @@ try {
   assert.ok(library.snapshot().pins.find(pin => pin.collectionId === destination.id).items[0].previewFile, 'Actual saved media must have a preview.');
   assert.equal(receiver.snapshot().entries[0].state, 'saved');
   const checks = output.match(/INSTRUMENTATION_RESULT: checks=(.+)/)?.[1];
-  await writeFile(path.join(artifactDir, 'report.json'), JSON.stringify({ status: 'passed', clipboard: !cameraOnly, device: process.env.PAPAN_ANDROID_SERIAL || 'connected Android', displayId: Number(output.match(/displayId=(\d+)/)?.[1]), transport: 'ADB reverse; Wi-Fi reachability not tested', saves, checks, cameraLimit: 'Live Camera2 frames and rotated QR fixtures verified separately; optical scan of desktop screen not exercised.' }, null, 2) + '\n');
+  const runtimeSha256 = {}; for (const file of ['src/phone-library.js', 'src/phone-receiver.js', 'src/phone-thumbnails.js']) runtimeSha256[file] = createHash('sha256').update(await readFile(file)).digest('hex');
+  await writeFile(path.join(artifactDir, 'report.json'), JSON.stringify({ status: 'passed', apkSha256, runtimeSha256, clipboard: !cameraOnly, device: process.env.PAPAN_ANDROID_SERIAL || 'connected Android', displayId: Number(output.match(/displayId=(\d+)/)?.[1]), transport: 'ADB reverse; Wi-Fi reachability not tested', saves, checks, cameraLimit: 'Live Camera2 frames and rotated QR fixtures verified separately; optical scan of desktop screen not exercised.' }, null, 2) + '\n');
   console.log(checks); console.log(`Real receiver saved ${saves} images into the chosen disposable collections.`);
 } finally {
   if (installed) adb('uninstall', packageName);
