@@ -2,7 +2,7 @@
 
 To share links from Android, use **Receive from phone**, choose a collection, and pair the Android companion. [Mobile sharing setup and recovery](mobile-sharing.md).
 
-The unreleased source build also has **Connect apps** in the toolbar and empty canvas. Enable it, name an app, choose its collections and save its one-time access key in a compatible adapter. You can change access or revoke it later. Protected collections must be unlocked in Papan; locking stops further access. [App connections and integration protocol](app-connections.md).
+Desktop 0.3.2+ has **Connect apps** in the toolbar and empty canvas. Enable it, name an app, choose its collections and save its one-time access key in a compatible adapter. You can change access or revoke it later. Protected collections must be unlocked in Papan; locking stops further access. [App connections and integration protocol](app-connections.md).
 
 ## Start by pasting
 

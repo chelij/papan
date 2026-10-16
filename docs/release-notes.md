@@ -6,7 +6,7 @@ Papan v0.3.3 brings desktop collection browsing to [Papan for Android 0.3.0](htt
 - **Preserve queued destinations.** Links retain their selected collection through offline storage, retry and endpoint recovery. Phone and desktop libraries remain separate.
 - **Restore macOS CI coverage.** The receiver fixture's second loopback address is assigned and removed explicitly.
 
-[Full changelog](https://github.com/chelij/papan/blob/v0.3.3/CHANGELOG.md) · [User guide](https://github.com/chelij/papan/blob/v0.3.3/docs/usage.md) · [Phone setup and protection](https://github.com/chelij/papan/blob/v0.3.3/docs/mobile-sharing.md)
+[Full changelog](https://github.com/chelij/papan/blob/v0.3.3/CHANGELOG.md) · [User guide](https://github.com/chelij/papan/blob/main/docs/usage.md) · [Phone setup and protection](https://github.com/chelij/papan/blob/main/docs/mobile-sharing.md)
 
 Download the desktop archive for your OS/architecture, extract it, and launch `papan`, `papan.exe`, or `Papan.app`. Keep the extracted folder together. The separate `Papan-pose-0.3.3-*` runtimes download after pose setup is confirmed; ordinary collection use does not need them. Every archive/runtime includes a SHA-256 checksum. Install Android's APK from its separate release.
 
@@ -17,3 +17,5 @@ Release publication requires passing native source and packaged-app checks on Li
 Sharing uses HTTP on a trusted local network. Phone and desktop libraries do not synchronize automatically. Physical animation/performance, optical QR, Android 8, iOS, a complete published Android Wi-Fi release-pair check and Windows/macOS pose inference remain unverified. Desktop builds are unsigned; signing, notarization and automatic updates are not implemented.
 
 Desktop and pose-worker code are GPL-3.0-or-later; the separate extraction helper is GPL-2.0-only. Packages retain dependency notices and corresponding Python/FFmpeg/x264/dav1d sources. The separately downloaded models are Apache-2.0. [Third-party notices](https://github.com/chelij/papan/blob/v0.3.3/THIRD-PARTY.md).
+
+The [main preflight](https://github.com/chelij/papan/actions/runs/38927221704) and [tagged release](https://github.com/chelij/papan/actions/runs/38928780884) passed on all three platforms. All twelve desktop upload digests match public checksums; the downloaded Linux archive matches tagged source and its public pose manifest. Android's two public assets pass exact APK, signature and embedded-source checks against its tag, retaining the virtually tested and installed bytes. [Publication evidence](https://github.com/chelij/papan/blob/main/docs/verification.md#v033-and-android-v030-releases).
