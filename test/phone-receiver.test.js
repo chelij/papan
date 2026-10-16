@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash, createHmac } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { openPhoneReceiver, privateAddress } from '../src/phone-receiver.js';
@@ -10,13 +10,16 @@ import { savePhoneLink } from '../src/phone-save.js';
 import { openLibrary, newCollection } from '../src/library.js';
 import { inspectLink, materialize } from '../src/media.js';
 import { startFixture } from './fixture.js';
+import sharp from 'sharp';
+import { videoThumbnail } from '../src/phone-thumbnails.js';
 
 async function port() {
   const server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const result = server.address().port; await new Promise(resolve => server.close(resolve)); return result;
 }
-async function until(check) {
-  for (let i = 0; i < 200; i++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
+async function until(check, timeout = 2000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
   assert.fail('Phone inbox did not reach the expected state.');
 }
 const addresses = () => [{ name: 'isolated test', address: '127.0.0.1' }];
@@ -166,4 +169,267 @@ test('interrupted protected captures wait through restart, and password recoding
     await library.mutate(draft => library.protection.unlock(draft, target.id, 'second-password'));
     receiver.pump(); await until(() => receiver.snapshot().entries[0].state === 'saved');
   } finally { await receiver?.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('phone browsing is opt-in, open-only, password scoped, and selected destinations survive retries', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-boards-')), library = await openLibrary(root);
+  const open = newCollection('Open'), protectedBoard = newCollection('Protected'), closed = { ...newCollection('Closed'), closed: true };
+  const folder = randomUUID(), itemId = randomUUID(), pin = { id: randomUUID(), collectionId: protectedBoard.id, title: 'secret title', sourceUrl: 'https://example.com/secret',
+    notes: 'secret notes', tags: [], engine: 'page', offline: true, folder, coverId: itemId, createdAt: new Date().toISOString(),
+    items: [{ id: itemId, kind: 'image', url: 'https://example.com/secret.png', previewFile: `${folder}/preview.png`, localFile: `${folder}/original.png` }] };
+  await mkdir(path.join(root, 'media', folder)); const bytes = Buffer.alloc(16 * 1024 * 1024, 73); Buffer.from('0123456789abcdef').copy(bytes);
+  await writeFile(path.join(root, 'media', pin.items[0].previewFile), bytes); await writeFile(path.join(root, 'media', pin.items[0].localFile), bytes);
+  await library.mutate(draft => { draft.collections.push(open, protectedBoard, closed); draft.pins.push(pin); });
+  await library.mutate(draft => library.protection.setPassword(draft, protectedBoard.id, 'phone-password'));
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, deliveries = [];
+  const options = { addresses, library, collection: (id, unlocked = true) => unlocked ? library.requireUnlocked(id) : library.snapshot().collections.find(c => c.id === id),
+    unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)),
+    codec: { encode: (task, data) => library.protection.encodeTask(task, data || library.snapshot()), decode: task => library.protection.decodeTask(task) },
+    run: async task => { deliveries.push(task.payload.collectionId); return {}; } };
+  let receiver = await openPhoneReceiver(root, options);
+  t.after(async () => { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); });
+  const settings = { enabled: true, host: '127.0.0.1', port: chosenPort, collectionId: open.id };
+  await receiver.configure(settings); const first = await pair(receiver, endpoint), second = await pair(receiver, endpoint);
+  const call = (device, route, body, headers = {}) => fetch(endpoint + route, { method: body === undefined ? 'GET' : 'POST',
+    headers: { Authorization: 'Bearer ' + device.token, 'Content-Type': 'application/json', ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const boardRoute = '/v1/collections/' + protectedBoard.id;
+  assert.equal((await call(first, '/v1/capabilities')).status, 200);
+  assert.equal((await (await call(first, '/v1/capabilities')).json()).collections, false);
+  assert.equal((await call(first, '/v1/collections')).status, 403);
+  assert.equal((await call(first, '/v1/shares', { id: randomUUID(), url: 'https://example.com/a', collectionId: open.id })).status, 403);
+  await receiver.configure({ ...settings, browsing: true });
+  assert.equal((await (await call(first, '/v1/capabilities')).json()).selectedDestination, true);
+  const list = await (await call(first, '/v1/collections')).json();
+  assert.deepEqual(list.collections.map(c => c.id), [open.id, protectedBoard.id]);
+  assert.equal(list.collections[1].locked, true, 'desktop-unlocked collection still requires the phone password');
+  assert.equal(JSON.stringify(list).includes('secret'), false);
+  assert.equal((await call(first, boardRoute + '/pins')).status, 423);
+  assert.equal((await call(first, '/v1/collections/' + closed.id + '/pins')).status, 404);
+  assert.equal((await call(first, boardRoute + '/unlock', { password: 'incorrect' })).status, 423);
+  assert.equal((await call(first, boardRoute + '/unlock', { password: 'phone-password' })).status, 200);
+  const page = await (await call(first, boardRoute + '/pins?limit=1')).json();
+  assert.equal(page.pins[0].title, 'secret title'); assert.equal(page.nextOffset, null);
+  assert.equal((await (await call(first, boardRoute + '/pins?q=secret')).json()).pins.length, 1);
+  assert.equal((await (await call(first, boardRoute + '/pins?q=absent')).json()).pins.length, 0);
+  for (const value of ['vault', 'localFile', 'previewFile', root]) assert.equal(JSON.stringify(page).includes(value), false);
+  assert.equal((await call(second, boardRoute + '/pins')).status, 423);
+  const mediaUrl = page.pins[0].items[0].previewUrl;
+  assert.equal((await fetch(mediaUrl)).status, 401);
+  assert.equal((await fetch(mediaUrl, { headers: { Authorization: 'Bearer ' + second.token } })).status, 423);
+  const media = await fetch(mediaUrl, { headers: { Authorization: 'Bearer ' + first.token, Range: 'bytes=2-6' } });
+  assert.equal(media.status, 206); assert.equal(await media.text(), '23456'); assert.equal(media.headers.get('cache-control'), 'no-store');
+  assert.equal((await call(first, boardRoute + '/pins?limit=51')).status, 400);
+  assert.equal((await call(first, '/v1/collections', undefined, { Origin: 'https://hostile.example' })).status, 403);
+  const id = randomUUID(), submission = { id, url: 'https://example.com/chosen', collectionId: protectedBoard.id };
+  assert.equal((await call(first, '/v1/shares', submission)).status, 202);
+  await until(() => receiver.snapshot().entries.find(e => e.collectionId === protectedBoard.id)?.state === 'saved');
+  assert.deepEqual(deliveries, [protectedBoard.id]);
+  assert.equal((await call(first, '/v1/shares', { ...submission, collectionId: open.id })).status, 409);
+  const active = await fetch(page.pins[0].items[0].originalUrl, { headers: { Authorization: 'Bearer ' + first.token } }), reader = active.body.getReader();
+  assert.ok((await reader.read()).value.length > 0); global.gc?.();
+  await library.mutate(draft => library.protection.lock(draft, protectedBoard.id));
+  await assert.rejects(async () => { while (!(await reader.read()).done) {} }, /terminated|abort|socket/i, 'locking cancels an active encrypted transfer even after the request is collected');
+  assert.equal((await call(first, boardRoute + '/pins')).status, 423);
+  assert.equal((await call(first, '/v1/shares', submission)).status, 200, 'accepted receipt remains readable while locked');
+  assert.equal((await call(first, '/v1/shares', { ...submission, id: randomUUID() })).status, 423);
+  assert.equal((await call(first, boardRoute + '/unlock', { password: 'phone-password' })).status, 200);
+  await call(first, '/v1/access/clear', {});
+  assert.equal((await call(first, boardRoute + '/pins')).status, 423);
+  await call(first, boardRoute + '/unlock', { password: 'phone-password' });
+  await receiver.stop(); receiver = await openPhoneReceiver(root, options);
+  assert.equal(receiver.snapshot().browsing, true);
+  assert.equal((await call(first, boardRoute + '/pins')).status, 423, 'restart discards phone password grants');
+  assert.equal((await call(first, '/v1/shares', submission)).status, 200);
+  await call(first, boardRoute + '/unlock', { password: 'phone-password' });
+  await library.mutate(draft => { draft.collections.find(c => c.id === protectedBoard.id).closed = true; });
+  assert.equal((await call(first, boardRoute + '/pins')).status, 404);
+  await receiver.revoke(first.deviceId);
+  assert.equal((await call(first, '/v1/collections')).status, 401);
+  const largePins = Array.from({ length: 15 }, (_, index) => { const itemId = randomUUID(); return { id: randomUUID(), collectionId: open.id, sourceUrl: `https://example.com/large/${index}`, title: 'Large text', notes: '', tags: [], engine: 'page', offline: false, text: '文'.repeat(20000), coverId: itemId, items: [{ id: itemId, kind: 'text', text: '文'.repeat(20000) }] }; });
+  await library.mutate(draft => draft.pins.push(...largePins));
+  const seen = []; let offset = 0;
+  do { const page = await (await call(second, `/v1/collections/${open.id}/pins?offset=${offset}`)).json(); assert.ok(Buffer.byteLength(JSON.stringify(page)) < 1024 * 1024 + 1024); assert.ok(page.pins.every(pin => pin.textTruncated)); seen.push(...page.pins.map(pin => pin.id)); offset = page.nextOffset; } while (offset !== null);
+  assert.equal(new Set(seen).size, largePins.length);
+  assert.equal(library.snapshot().pins.find(pin => pin.id === largePins[0].id).text.length, 20000, 'phone snippets preserve the full desktop text');
+  const stored = await readFile(path.join(root, 'phone-receiver.json'), 'utf8');
+  for (const secret of ['phone-password', first.token, 'example.com/chosen']) assert.equal(stored.includes(secret), false);
+});
+
+test('phone video thumbnails decode saved and encrypted previews without changing playback or protected access', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-thumbnails-')), library = await openLibrary(root), board = newCollection('Videos');
+  const folder = randomUUID(), itemId = randomUUID(), original = await readFile(new URL('./media/portrait.mp4', import.meta.url));
+  const item = { id: itemId, kind: 'video', previewFile: `${folder}/preview.mp4` };
+  await mkdir(path.join(root, 'media', folder)); await writeFile(path.join(root, 'media', item.previewFile), original);
+  await library.mutate(draft => { draft.collections.push(board); draft.pins.push({ id: randomUUID(), collectionId: board.id, title: 'Video', sourceUrl: 'https://example.com/video', engine: 'page', folder, coverId: itemId, items: [item] }); });
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`;
+  const receiver = await openPhoneReceiver(root, { addresses, library, unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)), collection: id => library.requireUnlocked(id), run: async () => ({}) });
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: board.id });
+    const config = await pair(receiver, endpoint), headers = { Authorization: 'Bearer ' + config.token };
+    const page = await (await fetch(`${endpoint}/v1/collections/${board.id}/pins`, { headers })).json(), media = page.pins[0].items[0];
+    assert.match(media.thumbnailUrl, /variant=thumbnail$/);
+    assert.equal((await fetch(media.thumbnailUrl)).status, 401);
+    const thumbnail = await fetch(media.thumbnailUrl, { headers }); assert.equal(thumbnail.status, 200);
+    assert.equal(thumbnail.headers.get('content-type'), 'image/jpeg'); assert.equal(thumbnail.headers.get('cache-control'), 'no-store');
+    const plain = Buffer.from(await thumbnail.arrayBuffer()), metadata = await sharp(plain).metadata();
+    assert.equal(metadata.format, 'jpeg'); assert(metadata.width > 0 && metadata.width <= 480 && metadata.height > 0 && metadata.height <= 480);
+    const pixels = await sharp(plain).removeAlpha().raw().toBuffer(); let red = 0;
+    for (let i = 0; i < pixels.length; i += 3) if (pixels[i] > 220 && pixels[i + 1] < 50 && pixels[i + 2] < 50) red++;
+    assert(red / (pixels.length / 3) > .99, 'thumbnail scaling must preserve the red fixture without pink/green corruption');
+    const playback = await fetch(media.previewUrl, { headers: { ...headers, Range: 'bytes=0-15' } });
+    assert.equal(playback.status, 206); assert.deepEqual(Buffer.from(await playback.arrayBuffer()), original.subarray(0, 16));
+    await library.mutate(draft => library.protection.setPassword(draft, board.id, 'thumbnail-password'));
+    assert.equal((await fetch(media.thumbnailUrl, { headers })).status, 423);
+    const unlock = await fetch(`${endpoint}/v1/collections/${board.id}/unlock`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'thumbnail-password' }) });
+    assert.equal(unlock.status, 200);
+    const decrypted = Buffer.from(await (await fetch(media.previewUrl, { headers })).arrayBuffer());
+    assert.equal(createHash('sha256').update(decrypted).digest('hex'), createHash('sha256').update(original).digest('hex'), 'Encryption changed the saved video preview.');
+    const encrypted = await fetch(media.thumbnailUrl, { headers }); assert.equal(encrypted.status, 200);
+    const encryptedBytes = Buffer.from(await encrypted.arrayBuffer());
+    assert.equal(createHash('sha256').update(encryptedBytes).digest('hex'), createHash('sha256').update(plain).digest('hex'), 'Plain and protected JPEG encodings differ.');
+    const head = await fetch(media.thumbnailUrl, { method: 'HEAD', headers }); assert.equal(head.status, 200); assert.equal((await head.arrayBuffer()).byteLength, 0);
+    const remaining = await readdir(path.join(root, 'media', folder)).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+    assert.equal(remaining.some(name => /\.(jpe?g|png)$/i.test(name)), false, 'thumbnail generation must not write decrypted covers to disk');
+    await library.mutate(draft => library.protection.lock(draft, board.id));
+    assert.equal((await fetch(media.thumbnailUrl, { headers })).status, 423);
+    await receiver.revoke(config.deviceId); assert.equal((await fetch(media.thumbnailUrl, { headers })).status, 401);
+    const cancelled = new AbortController(); cancelled.abort(); await assert.rejects(videoThumbnail('unused.mp4', cancelled.signal), /abort/i);
+  } finally { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('phone-initiated pairing requires desktop approval and keeps request secrets out of stored state', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-approval-')); let receiver;
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`;
+  const call = (route, input, method = input ? 'POST' : 'GET') => fetch(endpoint + route, { method, headers: { 'Content-Type': 'application/json' }, ...(input ? { body: JSON.stringify(input) } : {}) });
+  try {
+    receiver = await openPhoneReceiver(root, { addresses, collection: () => {}, run: async () => ({}) });
+    await receiver.configure({ enabled: true, host: '127.0.0.1', port: chosenPort, collectionId: randomUUID() });
+    const id = randomBytes(16).toString('hex'), input = { id, name: 'Test phone' };
+    assert.equal((await call('/v1/pair-requests', { ...input, id: '../invalid' })).status, 400);
+    const pending = await (await call('/v1/pair-requests', input)).json();
+    assert.match(pending.code, /^\d{6}$/); assert.equal(pending.status, 'pending');
+    assert.equal((await (await call('/v1/pair-requests', input)).json()).code, pending.code);
+    assert.equal(receiver.snapshot().devices.length, 0);
+    assert.equal((await (await call(`/v1/pair-requests/${id}`)).json()).pairingLink, undefined);
+    await receiver.approvePairRequest(id);
+    assert.equal(receiver.snapshot().devices.length, 0);
+    const approved = await (await call(`/v1/pair-requests/${id}`)).json();
+    assert.equal(approved.status, 'approved'); assert.equal(approved.code, pending.code);
+    const result = await call('/v1/pair', { code: new URL(approved.pairingLink).hash.slice(1), name: input.name });
+    const paired = await result.json(); assert.equal(result.status, 201);
+    assert.equal(receiver.snapshot().devices.length, 1);
+    assert.equal((await call(`/v1/pair-requests/${id}`)).status, 404);
+    const disk = await readFile(path.join(root, 'phone-receiver.json'), 'utf8');
+    assert.equal(disk.includes(paired.token), false); assert.equal(disk.includes(id), false); assert.equal(disk.includes(approved.pairingLink), false);
+    assert.equal(JSON.stringify(receiver.snapshot()).includes(paired.token), false);
+    const denied = randomBytes(16).toString('hex'); await call('/v1/pair-requests', { id: denied, name: 'Declined phone' });
+    await receiver.rejectPairRequest(denied); assert.equal((await call(`/v1/pair-requests/${denied}`)).status, 404);
+    const cancelled = randomBytes(16).toString('hex'); await call('/v1/pair-requests', { id: cancelled, name: 'Cancelled phone' });
+    await receiver.approvePairRequest(cancelled);
+    assert.equal((await call(`/v1/pair-requests/${cancelled}/cancel`, {})).status, 200);
+    assert.equal((await call(`/v1/pair-requests/${cancelled}`)).status, 404);
+    assert.equal(receiver.snapshot().devices.length, 1);
+  } finally { await receiver?.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('phone boards preserve desktop pin order across pages, search and rearrangement', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-order-')), library = await openLibrary(root), board = newCollection('Ordered'), other = newCollection('Other');
+  const pins = Array.from({ length: 85 }, (_, index) => { const item = { id: randomUUID(), kind: 'text', text: 'Reference' }; return { id: randomUUID(), collectionId: board.id, title: `Reference ${index}`, sourceUrl: `https://example.com/${index}`, notes: index % 2 ? 'match' : '', tags: [], engine: 'page', offline: false, items: [item], coverId: item.id, createdAt: new Date(2026, 0, 1 + (84 - index)).toISOString() }; });
+  await library.mutate(draft => { draft.collections.push(board, other); draft.pins.push(...pins); });
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, receiver = await openPhoneReceiver(root, { addresses, library, collection: id => library.requireUnlocked(id), unlock: async () => {}, run: async () => ({}) });
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: board.id }); const config = await pair(receiver, endpoint);
+    const page = async (offset = 0, query = '') => { const response = await fetch(`${endpoint}/v1/collections/${board.id}/pins?offset=${offset}&limit=40&q=${query}`, { headers: { Authorization: `Bearer ${config.token}` } }); assert.equal(response.status, 200); return response.json(); };
+    const all = async query => { let offset = 0; const ids = []; do { const result = await page(offset, query); ids.push(...result.pins.map(pin => pin.id)); offset = result.nextOffset; } while (offset !== null); return ids; };
+    assert.deepEqual(await all(''), pins.map(pin => pin.id), 'phone pages must match desktop array order, independent of timestamps');
+    await library.mutate(draft => { const moving = draft.pins.pop(); draft.pins.splice(1, 0, moving); });
+    const moved = library.snapshot().pins.filter(pin => pin.collectionId === board.id);
+    assert.deepEqual(await all(''), moved.map(pin => pin.id), 'refresh must follow manual desktop rearrangement');
+    assert.deepEqual(await all('match'), moved.filter(pin => pin.notes === 'match').map(pin => pin.id), 'search must retain desktop relative order');
+  } finally { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('unlocking another protected collection retains independent phone grants during protection updates', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-grants-')), library = await openLibrary(root), boards = [newCollection('First private'), newCollection('Second private')];
+  await library.mutate(draft => { draft.collections.push(...boards); for (const board of boards) { const item = { id: randomUUID(), kind: 'text', text: 'Private reference' }; draft.pins.push({ id: randomUUID(), collectionId: board.id, title: board.name, sourceUrl: `https://example.com/${board.id}`, notes: '', tags: [], engine: 'page', offline: false, items: [item], coverId: item.id }); } });
+  for (const board of boards) await library.mutate(draft => library.protection.setPassword(draft, board.id, 'collection-password'));
+  await library.mutate(draft => { for (const board of boards) library.protection.lock(draft, board.id); });
+  let busy = false;
+  const change = async operation => { busy = true; try { await library.mutate(operation); } finally { busy = false; } };
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, receiver = await openPhoneReceiver(root, { addresses, library, available: () => !busy, collection: (id, unlocked = true) => unlocked ? library.requireUnlocked(id) : library.snapshot().collections.find(board => board.id === id), unlock: (id, password) => change(draft => library.protection.unlock(draft, id, password)), run: async () => ({}) });
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: boards[0].id }); const config = await pair(receiver, endpoint), appSession = randomUUID();
+    const call = (route, body, session = appSession) => fetch(endpoint + route, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${config.token}`, 'X-Papan-Session': session, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const pins = board => call(`/v1/collections/${board.id}/pins`);
+    for (const board of boards) assert.equal((await call(`/v1/collections/${board.id}/unlock`, { password: 'collection-password' })).status, 200);
+    for (const board of boards) assert.equal((await pins(board)).status, 200, 'unlocking the second board must retain the first grant');
+    busy = true; assert.equal((await pins(boards[0])).status, 503); await library.mutate(() => {}); busy = false;
+    for (const board of boards) assert.equal((await pins(board)).status, 200, 'temporary protection unavailability must not clear grants');
+    await change(draft => library.protection.lock(draft, boards[0].id));
+    assert.equal((await pins(boards[0])).status, 423, 'actual desktop locking still blocks the affected collection');
+    assert.equal((await pins(boards[1])).status, 200, 'locking one collection must preserve the other grant');
+    assert.equal((await call(`/v1/collections/${boards[1].id}/pins`, undefined, randomUUID())).status, 423, 'another app session cannot reuse either grant');
+    await call('/v1/access/clear', {}); assert.equal((await pins(boards[1])).status, 423, 'app close still clears all grants for its session');
+  } finally { await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('phone app sessions retain access until close and expose desktop frame proportions', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-session-')), library = await openLibrary(root), board = newCollection('Portrait'), square = newCollection('Square', { fit: 'cover' });
+  const folder = randomUUID(); await mkdir(path.join(root, 'media', folder)); await writeFile(path.join(root, 'media', folder, 'reference.png'), await sharp({ create: { width: 90, height: 160, channels: 3, background: 'red' } }).png().toBuffer());
+  const item = { id: randomUUID(), kind: 'image', width: 90, height: 160, url: 'https://example.com/portrait.png', previewFile: `${folder}/reference.png`, localFile: `${folder}/reference.png` }, pin = { id: randomUUID(), folder, collectionId: board.id, title: 'Portrait reference', sourceUrl: 'https://example.com/portrait', notes: '', tags: [], engine: 'page', offline: true, createdAt: new Date().toISOString(), items: [item], coverId: item.id };
+  await library.mutate(draft => { draft.collections.push(board, square); draft.pins.push(pin); });
+  await library.mutate(draft => library.protection.setPassword(draft, board.id, 'app-session-password'));
+  const chosenPort = await port(), endpoint = `http://127.0.0.1:${chosenPort}`, receiver = await openPhoneReceiver(root, { addresses, library, collection: id => library.requireUnlocked(id), unlock: (id, password) => library.mutate(draft => library.protection.unlock(draft, id, password)), run: async () => ({}) });
+  const now = Date.now; let clock = now();
+  try {
+    await receiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: chosenPort, collectionId: square.id }); const config = await pair(receiver, endpoint);
+    const first = randomUUID(), second = randomUUID(), route = `/v1/collections/${board.id}`;
+    const call = (session, path, body) => fetch(endpoint + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json', ...(session ? { 'X-Papan-Session': session } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const list = async session => (await (await call(session, '/v1/collections')).json()).collections;
+    assert.equal((await list(first))[0].preview, undefined, 'locked content dimensions stay private');
+    assert.deepEqual((await list(first))[1].preview, { fit: 'cover', measuredCount: 0, aspectRatio: 1 });
+    assert.equal((await call('bad-session', '/v1/collections')).status, 400);
+    const unlocked = await (await call(first, route + '/unlock', { password: 'app-session-password' })).json(); assert.equal(unlocked.expiresIn, null);
+    assert.deepEqual((await list(first))[0].preview, { fit: 'contain', measuredCount: 1, aspectRatio: 90 / 160 });
+    Date.now = () => clock; clock += 16 * 60000;
+    assert.equal((await call(first, route + '/pins')).status, 200, 'an open app session does not time out after fifteen minutes');
+    assert.equal((await call(second, route + '/pins')).status, 423, 'a new app instance cannot reuse the prior grant');
+    assert.equal((await call('', route + '/pins')).status, 423, 'the device key alone cannot reuse app-session access');
+    assert.equal((await call(second, '/v1/shares', { id: randomUUID(), url: 'https://example.com/new', collectionId: board.id })).status, 423);
+    assert.equal((await call(first, '/v1/shares', { id: randomUUID(), url: 'https://example.com/new', collectionId: board.id })).status, 202);
+    await call(second, '/v1/access/clear', {}); assert.equal((await call(first, route + '/pins')).status, 200, 'stale close requests cannot revoke a different app session');
+    await call(first, '/v1/access/clear', {}); assert.equal((await call(first, route + '/pins')).status, 423);
+    await call(second, route + '/unlock', { password: 'app-session-password' }); await call(first, '/v1/access/clear', {});
+    assert.equal((await call(second, route + '/pins')).status, 200);
+    await library.mutate(draft => library.protection.lock(draft, board.id)); assert.equal((await call(second, route + '/pins')).status, 423, 'desktop lock still revokes the app grant');
+    const legacyResponse = await call('', route + '/unlock', { password: 'app-session-password' }), legacy = await legacyResponse.json(); assert.equal(legacyResponse.status, 200, JSON.stringify(legacy)); assert.equal(legacy.expiresIn, 900);
+    clock += 16 * 60000; assert.equal((await call('', route + '/pins')).status, 423, 'legacy clients retain their fifteen-minute lifetime');
+  } finally { Date.now = now; await receiver.stop(); library.protection.clear(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('paired identity proves the current endpoint and survives automatic interface address changes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-phone-address-')); let receiver, address = '127.0.0.1';
+  const chosenPort = await port(), target = randomUUID();
+  const endpoint = () => `http://${address}:${chosenPort}`;
+  const identify = (config, nonce = randomBytes(32).toString('hex')) => fetch(endpoint() + '/v1/identity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverId: config.serverId, deviceId: config.deviceId, nonce }) });
+  try {
+    receiver = await openPhoneReceiver(root, { addresses: () => [{ name: 'test-interface', address }], collection: () => {}, run: async () => ({}) });
+    await receiver.configure({ enabled: true, host: address, port: chosenPort, collectionId: target });
+    const config = await pair(receiver, endpoint()), nonce = randomBytes(32).toString('hex');
+    const first = await (await identify(config, nonce)).json();
+    const key = createHash('sha256').update(config.token).digest();
+    const expected = value => createHmac('sha256', key).update(`papan-reconnect-v1\n${config.serverId}\n${config.deviceId}\n${value.endpoint}\n${value.nonce}`).digest('hex');
+    assert.equal(first.proof, expected(first)); assert.equal(first.nonce, nonce); assert.equal(first.endpoint, endpoint());
+    assert.notEqual((await (await identify(config)).json()).proof, first.proof);
+    assert.equal((await identify({ ...config, serverId: randomUUID() })).status, 401);
+    assert.equal((await identify(config, 'invalid')).status, 401);
+    address = '127.0.0.2';
+    await until(() => receiver.snapshot().host === address && receiver.snapshot().running, 5000);
+    const moved = await (await identify(config, nonce)).json();
+    assert.equal(moved.endpoint, endpoint()); assert.equal(moved.proof, expected(moved)); assert.notEqual(moved.proof, first.proof);
+    assert.equal(receiver.snapshot().devices[0].id, config.deviceId); assert.equal(receiver.snapshot().collectionId, target);
+    await receiver.stop(); receiver = await openPhoneReceiver(root, { addresses: () => [{ name: 'test-interface', address }], collection: () => {}, run: async () => ({}) });
+    assert.equal((await (await identify(config)).json()).proof.length, 64);
+    await receiver.revoke(config.deviceId); assert.equal((await identify(config)).status, 401);
+  } finally { await receiver?.stop(); await rm(root, { recursive: true, force: true }); }
 });

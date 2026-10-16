@@ -5,6 +5,7 @@ Papan's desktop code is **GPL-3.0-or-later**. The independently executed extract
 | Component | License | Use and source |
 | --- | --- | --- |
 | Electron / Chromium / Node.js | MIT and bundled third-party licenses | Desktop runtime. Electron ships `LICENSE` and `LICENSES.chromium.html`; [source](https://github.com/electron/electron). |
+| bonjour-service 1.4.4 | MIT | Local DNS-SD announcements for phone pairing and automatic reconnection; [source](https://github.com/onlxltd/bonjour-service). Transitive package licenses and sources ship in the Node dependency inventory. |
 | ffmpeg-static | GPL-3.0-or-later | JavaScript binary locator and distribution package. [Source](https://github.com/eugeneware/ffmpeg-static). |
 | FFmpeg 7.0.2 + x264 | GPL-2.0-or-later for Papan's release build | Separate conversion/inspection executables built from pinned source. Source archives, SHA-256 hashes, license files, build scripts, configuration, and version output ship in `vendor/native-source/`. [FFmpeg sources](https://ffmpeg.org/releases/), [x264 source mirror](https://github.com/mirror/x264/tree/baee400fa9ced6f5481a728138fed6e867b0ff7f). |
 | dav1d 1.4.2 | BSD-2-Clause | Software AV1 decoding in the FFmpeg build. Its source, license, and configuration also ship in `vendor/native-source/`. [Source](https://github.com/videolan/dav1d/tree/1.4.2). |
