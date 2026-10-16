@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.3 - 2026-10-16
+
+Changes since [v0.3.2](https://github.com/chelij/papan/releases/tag/v0.3.2).
+
+### Added
+
+- Let paired Android phones browse and add to currently open desktop collections after enabling phone browsing. Protected collections require their own password authorization on the phone.
+- Pair from a nearby-desktop list on Android with a matching six-digit code and explicit desktop approval. Verify the paired desktop's identity before recovering a changed IP address or receiver port.
+- Serve authenticated image/video thumbnails and collection frame proportions for Android previews. Keep desktop manual pin order across pages, search and rearrangements.
+
+### Fixed
+
+- Retain separate protected-collection grants for a running phone app session across collection switching, backgrounding and rotation. Actual app close, desktop lock, revocation and restart still end access.
+- Keep pending links bound to their chosen destination through reconnects and retries.
+- Provision and remove the receiver test's second loopback address on macOS CI.
+
+### Compatibility and checks
+
+- Android 0.3.0 uses optional additions to receiver protocol v1. Existing pairings, queues, receipts and legacy default delivery remain compatible. Saved/portable/encrypted formats, pose attachments and the local app-library protocol are unchanged; ComfyUI v0.1.4 retains its existing contract.
+- Native Android 16/API 36 virtual checks verify local and desktop workflows, protected sessions, rearrangement, thumbnail reuse, full-screen media, responsive layouts and synchronized bars, with three actual receiver saves. The signed Android release APK is the same package installed with app data preserved; the phone was used only for installation and package verification.
+- Physical animation/performance, optical QR, Android 8, iOS and a complete published Android Wi-Fi release-pair check remain unverified. Desktop packages require native source/packaged checks on Linux x64, Windows x64 and macOS ARM64 before publication.
+
 ## 0.3.2 - 2026-10-14
 
 Changes since [v0.3.1](https://github.com/chelij/papan/releases/tag/v0.3.1).

@@ -13,7 +13,7 @@ Good references disappear into browser tabs and download folders. Papan keeps im
 ## What you can do
 
 - **Paste to collect.** Choose individual media, a cover, and a destination collection. Collect social posts, videos, short clips, image galleries, direct media, and accessible articles from supported sources. Webpage discovery also finds media added by JavaScript.
-- **Share from Android.** Pair [Papan for Android](https://github.com/chelij/papan-android) over your local network and share links into a chosen collection. Undelivered links stay queued on the phone. [Setup, APK builds, and iPhone Shortcut preparation](docs/mobile-sharing.md).
+- **Collect from Android.** Keep separate collections on your phone, or pair [Papan for Android 0.3.0](https://github.com/chelij/papan-android/releases/tag/v0.3.0) to browse and save into open desktop collections. Phone previews follow desktop order and proportions, including protected boards after a phone password check. Nearby approval and verified address recovery keep pairing usable when the desktop IP changes. Undelivered links stay queued with their chosen destination. [Setup, APK builds, and iPhone Shortcut preparation](docs/mobile-sharing.md).
 - **Browse visually.** Responsive columns align every row. Preview frames use the average media proportions of the collection. Choose saved items for board previews and set separate start/end ranges for each video. All previews share a stable frame; visible videos play silently.
 - **Make it yours.** Rename pins, change covers, move them between collections, and add tags and personal notes. Drag pins onto collection tabs, create destinations while editing, and undo removals after restarting.
 - **Extract poses locally.** Turn saved videos into attached DWPose control videos, clean up people/joint confidence, and reuse them in ComfyUI. The optional CPU tools download only after first-use confirmation.
@@ -43,11 +43,11 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.2/Papan-0.3.2-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.2/Papan-0.3.2-win32-x64.zip) | Release checks use the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.2/Papan-0.3.2-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.3/Papan-0.3.3-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.3/Papan-0.3.3-win32-x64.zip) | Release checks use the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.3/Papan-0.3.3-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
 
-The [v0.3.2 release run](https://github.com/chelij/papan/actions/runs/38543780320) passed native source and packaged-app checks, including app connections, on all three platforms, plus Linux webpage discovery and renderer checks. [ComfyUI v0.1.4](https://github.com/chelij/comfyui-papan/releases/tag/v0.1.4) provides the matching live connection, checked on Linux in classic and Nodes 2.0. The [release workflow](.github/workflows/desktop.yml) gates every new desktop package on native source and packaged-app checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
+The [release workflow](.github/workflows/desktop.yml) gates desktop packages on native source and packaged-app checks on all three platforms, plus Linux webpage discovery and renderer checks. [Android 0.3.0](https://github.com/chelij/papan-android/releases/tag/v0.3.0) adds phone collections and desktop browsing; [ComfyUI v0.1.4](https://github.com/chelij/comfyui-papan/releases/tag/v0.1.4) retains its existing live connection and saved-file support. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md).
 
 ## Run from source
 
