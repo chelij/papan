@@ -61,6 +61,20 @@ test('collection files save only the list/settings and reopen references without
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 
+test('extensionless collection names keep recovery backups beside the saved file', async () => {
+  const f = await fixture();
+  try {
+    f.collection.destination = path.join(f.destination, 'places');
+    f.collection.destinationRevision = await saveCollectionFile(f.root, f.snapshot, f.collection);
+    const first = await readFile(f.collection.destination, 'utf8');
+    f.collection.name = 'updated places';
+    await saveCollectionFile(f.root, f.snapshot, f.collection);
+    assert.equal(await readFile(path.join(f.destination, 'places.previous.papan'), 'utf8'), first);
+    assert.deepEqual(await readdir(f.destination), ['places', 'places.previous.papan']);
+    assert.equal((await readCollectionFile(f.collection.destination, { collections: [], pins: [] })).collection.name, 'updated places');
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
 test('failed and stale saves preserve files; missing media remains in the saved list', async () => {
   const f = await fixture();
   try {
