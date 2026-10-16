@@ -82,6 +82,8 @@
     <p class="hint">Share a link from your phone and Papan saves all extracted media to your chosen collection. Both devices must be reachable on your local network.</p>
     <form id="phone-form">
       <label class="phone-enable"><input id="phone-enabled" type="checkbox"> enable local receiver</label>
+      <label class="phone-enable"><input id="phone-browsing" type="checkbox"> allow paired phones to browse and add to open collections</label>
+      <p class="hint">Protected collections ask for their password on the phone. Links, passwords and media travel over HTTP on your trusted local network.</p>
       <label for="phone-collection">destination collection</label><select id="phone-collection"></select>
       <div class="setting-pair"><div><label for="phone-address">network address</label><select id="phone-address"></select></div><div><label for="phone-port">port</label><input id="phone-port" type="number" min="1024" max="65535" value="47778" required></div></div>
       <p class="hint">Use a trusted network. Local sharing uses HTTP. Locked destinations keep new links queued on the phone until you unlock them.</p>
@@ -92,6 +94,12 @@
     <h2 class="phone-section-title">paired devices</h2><div id="phone-devices"></div>
     <div class="settings-card-heading"><h2 class="phone-section-title">incoming links</h2><button id="phone-clear" class="text-button" type="button">clear saved receipts</button></div>
     <div id="phone-entries" role="list"></div><p id="phone-error" class="error" role="alert"></p>
+  </dialog>
+  <dialog id="phone-approval-dialog" aria-labelledby="phone-approval-title">
+    <div class="dialog-top"><h1 id="phone-approval-title">pair this phone?</h1></div>
+    <p id="phone-approval-name"></p><p class="hint">Approve only if this code matches the code shown in Papan on your phone. Pairing uses HTTP on your trusted local network.</p>
+    <p id="phone-approval-code" class="phone-approval-code"></p><p id="phone-approval-error" class="error" role="alert"></p>
+    <div class="dialog-footer"><button id="phone-approval-deny" class="quiet-button" type="button">decline</button><button id="phone-approval-allow" class="primary-button" type="button">allow pairing</button></div>
   </dialog>
   <dialog id="collections-dialog" aria-labelledby="collections-title">
     <div class="dialog-top"><h1 id="collections-title">open a collection</h1><button class="icon-button" data-close="collections-dialog" aria-label="Close collection browser">×</button></div>

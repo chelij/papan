@@ -1824,8 +1824,33 @@ api.poseSetup?.().then(setup => { poseToolsInstalled = setup.downloadBytes === 0
 $('retry-library').onclick = loadLibrary;
 loadLibrary();
 
+let phoneApprovalId = null, phoneApprovalTimer;
+function showPhoneApproval() {
+  const dialog = $('phone-approval-dialog');
+  const requests = (phoneState?.pairingRequests || []).filter(request => request.expiresAt > Date.now());
+  if (phoneApprovalId && !requests.some(request => request.id === phoneApprovalId)) { phoneApprovalId = null; clearTimeout(phoneApprovalTimer); dialog.close(); }
+  if (dialog.open || document.querySelector('dialog[open]:not(#phone-dialog)') || !requests.length) return;
+  const request = requests[0]; phoneApprovalId = request.id;
+  $('phone-approval-name').textContent = request.name;
+  $('phone-approval-code').textContent = request.code;
+  $('phone-approval-error').textContent = '';
+  dialog.showModal();
+  phoneApprovalTimer = setTimeout(showPhoneApproval, Math.max(1, request.expiresAt - Date.now()));
+}
+async function answerPhoneApproval(allow) {
+  const id = phoneApprovalId; if (!id) return;
+  $('phone-approval-allow').disabled = $('phone-approval-deny').disabled = true;
+  try { const state = await api[allow ? 'approvePhonePairing' : 'rejectPhonePairing'](id); phoneApprovalId = null; $('phone-approval-dialog').close(); renderPhoneInbox(state); }
+  catch (error) { $('phone-approval-error').textContent = error.message; }
+  finally { $('phone-approval-allow').disabled = $('phone-approval-deny').disabled = false; }
+}
+$('phone-approval-allow').onclick = () => answerPhoneApproval(true);
+$('phone-approval-deny').onclick = () => answerPhoneApproval(false);
+$('phone-approval-dialog').addEventListener('cancel', event => { event.preventDefault(); void answerPhoneApproval(false); });
+document.addEventListener('close', () => queueMicrotask(showPhoneApproval), true);
 function renderPhoneInbox(value, initial = false) {
   phoneState = value;
+  showPhoneApproval();
   renderActivity();
   $('phone-pair').disabled = !value.running;
   $('phone-status').textContent = value.error || (value.running ? `listening · ${value.host}:${value.port}` : 'receiver is off');
@@ -1848,6 +1873,7 @@ async function openPhoneSharing() {
   try {
     await refresh(); renderPhoneInbox(await api.phoneReceiver(), true);
     $('phone-enabled').checked = phoneState.enabled;
+    $('phone-browsing').checked = Boolean(phoneState.browsing);
     $('phone-port').value = phoneState.port;
     $('phone-address').innerHTML = phoneState.addresses.map(item => `<option value="${escapeHTML(item.address)}">${escapeHTML(item.name)} · ${escapeHTML(item.address)}</option>`).join('');
     if (phoneState.addresses.some(item => item.address === phoneState.host)) $('phone-address').value = phoneState.host;
@@ -1862,7 +1888,7 @@ $('receive-phone').onclick = $('receive-empty-phone').onclick = openPhoneSharing
 $('phone-form').onsubmit = async event => {
   event.preventDefault(); $('phone-save').disabled = true; $('phone-error').textContent = '';
   try {
-    const value = await api.configurePhone({ enabled: $('phone-enabled').checked, collectionId: $('phone-collection').value, host: $('phone-address').value, port: Number($('phone-port').value) });
+    const value = await api.configurePhone({ enabled: $('phone-enabled').checked, browsing: $('phone-browsing').checked, collectionId: $('phone-collection').value, host: $('phone-address').value, port: Number($('phone-port').value) });
     await refresh(); renderPhoneInbox(value, true);
     $('phone-collection').innerHTML = library.collections.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)}</option>`).join('') + '<option value="new-inbox">+ create Inbox collection</option>';
     $('phone-collection').value = value.collectionId;

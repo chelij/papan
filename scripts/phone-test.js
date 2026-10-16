@@ -32,9 +32,9 @@ async function launch() {
   assert.equal(await app.evaluate(() => process.env.DISPLAY), process.env.DISPLAY);
   assert.equal(await app.evaluate(({ app }) => app.commandLine.getSwitchValue('ozone-platform')), 'x11');
   page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
-  if (process.env.DISPLAY === ':97') {
+  if (process.platform === 'linux') {
     const id = await app.evaluate(({ BrowserWindow }) => '0x' + BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readUInt32LE().toString(16));
-    assert.equal(spawnSync('xprop', ['-display', ':97', '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
+    assert.equal(spawnSync('xprop', ['-display', process.env.DISPLAY, '-id', id, 'WM_CLASS']).status, 0, 'test window belongs to the isolated display');
   }
   await page.waitForFunction(() => Boolean(window.papan));
 }
@@ -63,12 +63,26 @@ try {
   await page.getByRole('button', { name: 'receive from phone', exact: true }).click();
   await expect(page.locator('#phone-dialog')).toBeVisible();
   assert.equal((await page.evaluate(() => window.papan.phoneReceiver())).running, false);
-  await page.locator('#phone-enabled').check(); await page.locator('#phone-port').fill(String(port));
+  await page.locator('#phone-enabled').check(); await page.locator('#phone-browsing').check(); await page.locator('#phone-port').fill(String(port));
   await page.getByRole('button', { name: 'save receiver settings' }).click();
   await expect(page.locator('#phone-status')).toContainText('listening');
   const receiver = await page.evaluate(() => window.papan.phoneReceiver());
   const destination = receiver.collectionId;
   assert.equal((await page.evaluate(() => window.papan.library())).collections[0].name, 'Inbox');
+  const approvalId = randomUUID().replaceAll('-', '');
+  const approval = await fetch(`${endpoint}/v1/pair-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: approvalId, name: 'Phone approval check' }) });
+  const waiting = await approval.json(); assert.equal(approval.status, 202);
+  await expect(page.locator('#phone-approval-dialog')).toBeVisible();
+  await expect(page.locator('#phone-approval-code')).toHaveText(waiting.code);
+  assert.equal((await page.evaluate(() => window.papan.phoneReceiver())).devices.length, 0);
+  await page.getByRole('button', { name: 'allow pairing', exact: true }).click();
+  await expect(page.locator('#phone-approval-dialog')).not.toBeVisible();
+  const approved = await (await fetch(`${endpoint}/v1/pair-requests/${approvalId}`)).json();
+  const consented = await fetch(`${endpoint}/v1/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: new URL(approved.pairingLink).hash.slice(1), name: 'Phone approval check' }) });
+  const consentConfig = await consented.json(); assert.equal(consented.status, 201);
+  await expect(page.locator('#phone-devices')).toContainText('Phone approval check');
+  await page.evaluate(id => window.papan.revokePhone(id), consentConfig.deviceId);
+  checks.push('Phone-initiated pairing displays a matching six-digit code in a native desktop consent dialog; no device is added before Allow, and the approved one-time link pairs through the actual receiver');
   await page.getByRole('button', { name: 'pair a phone', exact: true }).click();
   await expect(page.locator('#phone-qr')).toBeVisible();
   const link = await page.locator('#phone-pair-url').inputValue();
@@ -123,6 +137,33 @@ try {
   await page.evaluate(id => window.papan.lockCollection({ id }), destination);
   assert.equal(JSON.stringify(await page.evaluate(() => window.papan.phoneReceiver())).includes(fixture.url), false);
   checks.push('Restart idempotency, token revocation, and encryption/lock integration leave no shared URL plaintext in the inbox');
+  const pairing = await page.evaluate(() => window.papan.pairPhone());
+  const phone = await (await fetch(`${endpoint}/v1/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: new URL(pairing.url).hash.slice(1), name: 'native browsing client' }) })).json();
+  const browse = async (route, body) => fetch(endpoint + route, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${phone.token}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  assert.equal((await (await browse('/v1/capabilities')).json()).collections, true);
+  assert.equal((await browse(`/v1/collections/${destination}/pins`)).status, 423);
+  assert.equal((await browse(`/v1/collections/${destination}/unlock`, { password: 'incorrect' })).status, 423);
+  assert.equal((await browse(`/v1/collections/${destination}/unlock`, { password: 'phone-test-password' })).status, 200);
+  const pins = await (await browse(`/v1/collections/${destination}/pins`)).json();
+  assert.equal(pins.pins.length, process.env.PAPAN_ADB ? 3 : 1);
+  const preview = await fetch(pins.pins[0].items.find(item => item.previewUrl).previewUrl, { headers: { Authorization: `Bearer ${phone.token}`, Range: 'bytes=0-15' } });
+  assert.equal(preview.status, 206); assert.equal((await preview.arrayBuffer()).byteLength, 16);
+  const chosen = await page.evaluate(() => window.papan.createCollection({ name: 'Phone chosen collection' }));
+  const selected = await browse('/v1/shares', { id: randomUUID(), url: `${fixture.url}/wide.png`, collectionId: chosen.id });
+  assert.equal(selected.status, 202);
+  await expect.poll(() => page.evaluate(id => window.papan.library().then(library => library.pins.filter(pin => pin.collectionId === id).length), chosen.id)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.papan.phoneReceiver().then(receiver => receiver.entries.some(entry => ['queued', 'running'].includes(entry.state))))).toBe(false);
+  await page.evaluate(id => window.papan.protectCollection({ id, password: 'second-phone-password' }), chosen.id);
+  await page.evaluate(id => window.papan.lockCollection({ id }), chosen.id);
+  assert.equal((await browse(`/v1/collections/${destination}/pins`)).status, 200, 'another collection protection change must retain the first phone grant');
+  assert.equal((await browse(`/v1/collections/${chosen.id}/unlock`, { password: 'second-phone-password' })).status, 200);
+  for (const id of [destination, chosen.id, destination, chosen.id]) assert.equal((await browse(`/v1/collections/${id}/pins`)).status, 200, 'switching protected collections must retain each password grant through real desktop IPC');
+  await page.evaluate(id => window.papan.lockCollection({ id }), destination);
+  assert.equal((await browse(`/v1/collections/${destination}/pins`)).status, 423);
+  assert.equal((await browse(`/v1/collections/${chosen.id}/pins`)).status, 200, 'locking one desktop collection must preserve the other phone grant');
+  await browse('/v1/access/clear', {}); assert.equal((await browse(`/v1/collections/${chosen.id}/pins`)).status, 423);
+  checks.push('Real desktop protection IPC retains independent phone grants across unlocking/switching collections; locking one collection and clearing access still deny the affected reads');
+  checks.push('Native browsing opt-in persists through restart; phone password checks unlock the real encrypted library; authenticated ranges and a chosen destination save work through production IPC');
   assert.deepEqual(errors, []);
   await mkdir('artifacts', { recursive: true });
   await page.getByRole('button', { name: 'Receive from phone', exact: true }).click();

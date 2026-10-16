@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('papan', {
   libraryService: invoke('library-service'), configureLibraryService: invoke('configure-library-service'),
   grantApp: invoke('grant-app'), updateApp: invoke('update-app'), revokeApp: invoke('revoke-app'), copyAppConnection: invoke('copy-app-connection'),
   phoneReceiver: invoke('phone-receiver'), configurePhone: invoke('configure-phone'), pairPhone: invoke('pair-phone'),
+  approvePhonePairing: invoke('approve-phone-pairing'), rejectPhonePairing: invoke('reject-phone-pairing'),
   revokePhone: invoke('revoke-phone'), retryPhoneShare: invoke('retry-phone-share'), dismissPhoneShare: invoke('dismiss-phone-share'), clearPhoneReceipts: invoke('clear-phone-receipts'),
   unlockCollection: invoke('unlock-collection'), lockCollection: invoke('lock-collection'), protectCollection: invoke('protect-collection'),
   library: invoke('library'), inspect: invoke('inspect'), save: invoke('save'), cancel: invoke('cancel'),
