@@ -183,7 +183,9 @@ function responsiveURL(input = '') {
 
 export function parsePage(html, sourceUrl) {
   const $ = load(html);
-  const resolve = value => { try { return webURL(value, sourceUrl); } catch { return null; } };
+  let baseURL = sourceUrl;
+  try { baseURL = webURL($('base[href]').first().attr('href'), sourceUrl); } catch {}
+  const resolve = value => { try { return webURL(value, baseURL); } catch { return null; } };
   const source = new URL(sourceUrl);
   const postId = source.pathname.match(/\/(?:comments|gallery)\/([a-z0-9]+)(?:\/|$)/i)?.[1];
   let post = /(^|\.)reddit\.com$/.test(source.hostname) ? $('shreddit-post[permalink]').filter((_, el) => {

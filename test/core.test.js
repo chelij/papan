@@ -32,6 +32,34 @@ test('page discovery deduplicates images, finds a video and readable text withou
   assert.equal(parsePage(`<html><title>Text only</title><article><p>${'A longer paragraph on a text-only page. '.repeat(12)}</p></article></html>`, 'https://example.com').items[0].kind, 'text');
 });
 
+test('page discovery respects the first document base URL and preserves source identity', () => {
+  const source = 'https://example.com/articles/post';
+  const result = parsePage('<base target="_blank"><base href="../media/"><base href="https://ignored.example/"><main><img src="photo.png"><video src="clip.mp4" poster="cover.jpg"></video></main>', source);
+  assert.equal(result.sourceUrl, source);
+  assert.equal(result.items.find(item => item.kind === 'image').url, 'https://example.com/media/photo.png');
+  assert.equal(result.items.find(item => item.kind === 'video').url, 'https://example.com/media/clip.mp4');
+  assert.equal(result.items.find(item => item.kind === 'video').poster, 'https://example.com/media/cover.jpg');
+  for (const base of ['https://cdn.example/references/', '//cdn.example/references/']) {
+    assert.equal(parsePage(`<base href="${base}"><img src="photo.png">`, source).items[0].url, 'https://cdn.example/references/photo.png');
+  }
+  for (const base of ['', 'javascript:alert(1)', 'https://name:password@example.com/']) {
+    assert.equal(parsePage(`<base href="${base}"><base href="https://ignored.example/"><img src="photo.png">`, source).items[0].url, 'https://example.com/articles/photo.png');
+  }
+});
+
+test('document-base images save the exact original and a decoded preview', async () => {
+  const fixture = await startFixture(), dir = await mkdtemp(path.join(os.tmpdir(), 'papan-document-base-'));
+  try {
+    await openLibrary(dir);
+    const info = await inspectLink(`${fixture.url}/document-base`);
+    assert.equal(info.sourceUrl, `${fixture.url}/document-base`);
+    assert.equal(info.items[0].url, `${fixture.url}/base-media/wide.png`);
+    const saved = await materialize({ id: 'base-image', ...info }, dir, true);
+    assert.deepEqual(await readFile(path.join(dir, 'media', saved.items[0].localFile)), await fetch(`${fixture.url}/wide.png`).then(response => response.arrayBuffer()).then(Buffer.from));
+    assert.equal((await sharp(await readFile(path.join(dir, 'media', saved.items[0].previewFile))).metadata()).width, 1280);
+  } finally { await fixture.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
 test('page discovery finds lazy and responsive JPEGs across ordinary sites', () => {
   const result = parsePage(`<html><meta name="twitter:image" content="/shared.jpg"><main>
     <img src="data:image/gif;base64,AAAA" data-original="/original.jpg">
