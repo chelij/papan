@@ -66,7 +66,11 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
       await new Promise(resolve => setTimeout(resolve, 1800));
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify(request.url.includes('video') ? { kind: 'video', url: '/portrait.mp4' } : { kind: 'image', url: '/photo.jpg' }));
-    } else if (pathname === '/wide.png' || pathname === '/animated.gif') {
+    } else if (pathname === '/parameterized.png') {
+      response.writeHead(200, { 'Content-Type': 'ImAgE/PNG \t; charset=binary' }); response.end(wideImage);
+    } else if (pathname === '/cdn,width=3200,quality=80.png' || pathname === '/cdn,width=32,quality=80.png') {
+      response.writeHead(200, { 'Content-Type': 'image/png' }); response.end(pathname.includes('3200') ? wideImage : frames[0]);
+    } else if (['/wide.png', '/100%.png', '/%E9.png', '/caf%C3%A9.png', '/Day%20one.png', '/animated.gif'].includes(pathname)) {
       response.writeHead(200, { 'Content-Type': pathname.endsWith('.png') ? 'image/png' : 'image/gif' });
       response.end(pathname.endsWith('.png') ? wideImage : animation);
     } else if ((pathname === '/clip.mp4' || extraVideo && pathname === '/clip-short.mp4') && video) {
@@ -83,7 +87,8 @@ export async function startFixture({ video = false, extraVideo = false } = {}) {
     } else if (pathname === '/missing') { response.writeHead(404); response.end(); }
     else {
       response.writeHead(200, { 'Content-Type': 'text/html' });
-      if (pathname === '/album') response.end(`<html><head><title>Collected colors</title></head><body><article><h1>Collected colors</h1><img src="/red.svg"><img src="/blue.svg"><img src="/green.svg"></article></body></html>`);
+      if (pathname === '/responsive-commas') response.end('<title>Responsive reference</title><main><img src="/cdn,width=32,quality=80.png" srcset="/cdn,width=32,quality=80.png 32w, /cdn,width=3200,quality=80.png 3200w"></main>');
+      else if (pathname === '/album') response.end(`<html><head><title>Collected colors</title></head><body><article><h1>Collected colors</h1><img src="/red.svg"><img src="/blue.svg"><img src="/green.svg"></article></body></html>`);
       else if (pathname === '/dynamic') response.end(`<html><head><title>App shell</title><script src="/dynamic.js" defer></script></head><body><article><img src="/advert.jpg"></article><main><p>${paragraphs}</p><img src="/red.svg" width="50"><img src="/blue.svg" hidden></main></body></html>`);
       else if (pathname === '/carousel') response.end('<html><title>Image gallery</title><script>document.title = "Image gallery";</script><main><figure><img src="/photo.jpg" srcset="/photo.jpg 320w, /wide.png 1600w"><img src="/green.svg" style="visibility:hidden"><div style="display:none"><img src="/blue.svg"></div><img src="/red.svg" hidden></figure></main></html>');
       else if (pathname === '/video') response.end('<html><title>A little motion</title><main><video src="/clip.mp4"></video></main></html>');

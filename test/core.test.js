@@ -44,6 +44,17 @@ test('page discovery finds lazy and responsive JPEGs across ordinary sites', () 
   assert.deepEqual(result.items.map(item => item.url), ['shared.jpg', 'original.jpg', 'lazy.jpg', 'large.jpg', 'picture-large.jpg', 'responsive.jpg'].map(name => `https://example.com/${name}`));
 });
 
+test('responsive image discovery preserves commas inside candidate URLs', () => {
+  const info = parsePage(`<main>
+    <img src="/fallback.png" srcset="/cdn,width=32,quality=80.png 32w, /cdn,width=3200,quality=80.png 3200w">
+    <img data-srcset="/image.png?crop=1,2,3 1x, /image.png?crop=4,5,6 2x">
+    <picture><source srcset="/small,a.png 1x, /large,b.png 2x"><img src="/picture-fallback.png"></picture>
+    <img srcset="/standalone,a.png">
+    <img srcset="/first,a.png, /second,b.png 2x">
+  </main>`, 'https://example.com/article');
+  assert.deepEqual(info.items.map(item => item.url), ['/cdn,width=3200,quality=80.png', '/image.png?crop=4,5,6', '/large,b.png', '/standalone,a.png', '/second,b.png'].map(value => `https://example.com${value}`));
+});
+
 test('page discovery selects main media before unrelated articles', () => {
   const info = parsePage('<html><title>Reference</title><article><img src="/advert.jpg"><video src="/advert.mp4"></video></article><main><img src="/reference.jpg"><video src="/reference.mp4"></video></main></html>', 'https://example.com/post');
   assert.deepEqual(info.items.filter(item => item.kind !== 'text').map(item => item.url), ['https://example.com/reference.mp4', 'https://example.com/reference.jpg']);
@@ -186,6 +197,56 @@ test('real downloads save selected files, reject HTML-as-media, and roll back in
     assert.deepEqual(await readdir(path.join(root, 'staging')), []);
     const controller = new AbortController(); controller.abort();
     await assert.rejects(inspectLink(`${fixture.url}/album`, controller.signal));
+  } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('media-type whitespace before parameters preserves the downloaded image and its preview', async () => {
+  const fixture = await startFixture();
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-media-type-'));
+  try {
+    await openLibrary(root);
+    const url = `${fixture.url}/parameterized.png`;
+    const original = Buffer.from(await (await fetch(url)).arrayBuffer());
+    const info = await inspectLink(url);
+    assert.equal(info.items[0].kind, 'image');
+    const saved = await materialize(info, root, true);
+    assert.deepEqual(await readFile(path.join(root, 'media', saved.items[0].localFile)), original);
+    const preview = await sharp(path.join(root, 'media', saved.items[0].previewFile)).metadata();
+    assert.deepEqual([preview.width, preview.height], [1280, 640]);
+  } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('direct image filenames retain literal percent signs and decode valid UTF-8 titles', async () => {
+  const fixture = await startFixture();
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-percent-link-'));
+  try {
+    await openLibrary(root);
+    for (const [filename, title] of [['100%.png', '100%.png'], ['%E9.png', '%E9.png'], ['caf%C3%A9.png', 'café.png'], ['Day%20one.png', 'Day one.png']]) {
+      const url = `${fixture.url}/${filename}`;
+      const original = Buffer.from(await (await fetch(url)).arrayBuffer());
+      const info = await inspectLink(url);
+      assert.equal(info.title, title);
+      assert.equal(info.items[0].url, url);
+      const saved = await materialize(info, root, true);
+      assert.deepEqual(await readFile(path.join(root, 'media', saved.items[0].localFile)), original);
+      const preview = await sharp(path.join(root, 'media', saved.items[0].previewFile)).metadata();
+      assert.deepEqual([preview.width, preview.height], [1280, 640]);
+    }
+  } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('responsive URLs containing commas download the selected original and a readable preview', async () => {
+  const fixture = await startFixture();
+  const root = await mkdtemp(path.join(os.tmpdir(), 'papan-responsive-link-'));
+  try {
+    await openLibrary(root);
+    const info = await inspectLink(`${fixture.url}/responsive-commas`);
+    assert.equal(info.items[0].url, `${fixture.url}/cdn,width=3200,quality=80.png`);
+    const saved = await materialize(info, root, true);
+    const original = Buffer.from(await (await fetch(info.items[0].url)).arrayBuffer());
+    assert.deepEqual(await readFile(path.join(root, 'media', saved.items[0].localFile)), original);
+    const preview = await sharp(path.join(root, 'media', saved.items[0].previewFile)).metadata();
+    assert.deepEqual([preview.width, preview.height], [1280, 640]);
   } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
 });
 

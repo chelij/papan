@@ -161,6 +161,26 @@ function candidate(url, kind, extra = {}) {
   return { key: createHash('sha256').update(url).digest('hex').slice(0, 24), kind, url, ...extra };
 }
 
+function responsiveURL(input = '') {
+  let selected, largest = -Infinity;
+  while (input) {
+    input = input.replace(/^[,\t\n\f\r ]+/, '');
+    const match = /^[^\t\n\f\r ]+/.exec(input);
+    if (!match) break;
+    let url = match[0], descriptor = '';
+    input = input.slice(url.length);
+    if (url.endsWith(',')) url = url.replace(/,+$/, '');
+    else {
+      const end = input.indexOf(',');
+      descriptor = end < 0 ? input : input.slice(0, end);
+      input = end < 0 ? '' : input.slice(end + 1);
+    }
+    const size = parseFloat(descriptor) || 1;
+    if (size > largest) { selected = url; largest = size; }
+  }
+  return selected;
+}
+
 export function parsePage(html, sourceUrl) {
   const $ = load(html);
   const resolve = value => { try { return webURL(value, sourceUrl); } catch { return null; } };
@@ -194,7 +214,7 @@ export function parsePage(html, sourceUrl) {
     const img = $(el);
     if ((Number(img.attr('width')) > 0 && Number(img.attr('width')) < 100) || (Number(img.attr('height')) > 0 && Number(img.attr('height')) < 80)) return;
     const srcset = img.attr('data-srcset') || img.attr('srcset') || img.closest('picture').find('source[srcset]').first().attr('srcset');
-    const responsive = srcset?.split(',').map(value => value.trim().split(/\s+/)).sort((a, b) => (parseFloat(b[1]) || 1) - (parseFloat(a[1]) || 1))[0]?.[0];
+    const responsive = responsiveURL(srcset);
     add(img.attr('data-src') || img.attr('data-original') || img.attr('data-lazy-src') || responsive || img.attr('src'), 'image', { alt: (img.attr('alt') || '').slice(0, 250) });
   });
   const document = new JSDOM(post?.length ? post.prop('outerHTML') : html, { url: sourceUrl });
@@ -245,7 +265,9 @@ export async function inspectLink(input, signal, browser = '', renderPage) {
     const kind = kindFromType(contentType);
     if (kind) {
       await response.body?.cancel();
-      return { sourceUrl, title: decodeURIComponent(new URL(url).pathname.split('/').pop() || 'Saved media'), author: '', text: '', engine: 'page', items: [candidate(url, kind)] };
+      let title = new URL(url).pathname.split('/').pop() || 'Saved media';
+      try { title = decodeURIComponent(title); } catch {}
+      return { sourceUrl, title, author: '', text: '', engine: 'page', items: [candidate(url, kind)] };
     }
     if (!contentType.includes('html') && !contentType.includes('text/plain')) { await response.body?.cancel(); throw new Error('This link is not an image, video, or readable page.'); }
     const chunks = [];
@@ -275,7 +297,7 @@ function safeRemote(value) { try { return value ? webURL(value) : null; } catch 
 
 async function downloadDirect(item, destination, signal, browser = '') {
   const { response } = await fetchWeb(item.url, { signal, browser });
-  const type = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
+  const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
   const detected = kindFromType(type);
   if (detected !== item.kind) { await response.body?.cancel(); throw new Error('The source returned a page instead of the selected media.'); }
   const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif', 'image/svg+xml': 'svg', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };

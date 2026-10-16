@@ -89,7 +89,7 @@ export async function saveCollectionFile(root, snapshot, collection) {
   if (!previous && collection.destinationRevision) throw new Error('The saved collection file is missing. Choose a destination again to save a new file.');
   const encryptedFile = collection.vault ? path.join(root, 'vaults', collection.vault.file) : null;
   const data = encryptedFile ? await vaultHeader(encryptedFile) : validateContents({ format: 'papan-collection', version: 1, revision: randomUUID(), ...collectionContents(snapshot, collection, root) });
-  const backupFile = `${file.slice(0, -path.extname(file).length)}.previous.papan`;
+  const backupFile = path.join(path.dirname(file), `${path.basename(file, path.extname(file))}.previous.papan`);
   if (previous) {
     try {
       const existing = await isVault(backupFile) ? null : await readManifest(backupFile);
