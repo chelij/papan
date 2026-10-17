@@ -31,7 +31,7 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, pairingReceiver, control, installed = false, port, reconnectPort, pairingPort, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png', 'collection-menu.png', 'location-menu.png', 'location-focus-menu.png', 'location-phone-menu.png', 'location-desktop-menu.png', 'location-activity-menu.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'pin-actions.png', 'remote-video-viewer.png', 'portrait-board.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png', 'collection-menu.png', 'location-menu.png', 'location-focus-menu.png', 'location-phone-menu.png', 'location-desktop-menu.png', 'location-activity-menu.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
@@ -71,11 +71,15 @@ try {
   await pairingLibrary.mutate(draft => draft.collections.push(pairingCollection));
   pairingReceiver = await openPhoneReceiver(pairingRoot, { addresses: () => [{ name: 'USB test', address: '127.0.0.1' }], library: pairingLibrary, unlock: async (id, password) => pairingLibrary.mutate(draft => pairingLibrary.protection.unlock(draft, id, password)), collection: () => {}, run: async () => ({}) });
   await pairingReceiver.configure({ enabled: true, browsing: true, host: '127.0.0.1', port: pairingPort, collectionId: pairingCollection.id });
+  let phoneVideoAvailable = true;
   control = createHTTPServer(async (request, response) => {
     try {
       let result = {};
+      if (request.method === 'GET' && request.url === '/phone-video-page') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<title>Saved phone video</title><meta property="og:video" content="/phone-video-bytes"><meta property="og:image" content="' + fixture.url + '/wide.png">'); return; }
+      if (request.method === 'GET' && request.url === '/phone-video-bytes') { if (!phoneVideoAvailable) { response.writeHead(503); response.end(); return; } const bytes = Buffer.from(await (await fetch(fixture.url + '/portrait.mp4')).arrayBuffer()); response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': bytes.length }); response.end(bytes); return; }
       if (request.method !== 'POST') throw new Error('Use POST.');
-      if (request.url === '/disable') await receiver.configure({ ...settings, enabled: false });
+      if (request.url === '/disable-phone-video') phoneVideoAvailable = false;
+      else if (request.url === '/disable') await receiver.configure({ ...settings, enabled: false });
       else if (request.url === '/enable') await receiver.configure(settings);
       else if (request.url === '/move') { settings.port = reconnectPort; await receiver.configure(settings); }
       else if (request.url === '/approve-pairing') { const pending = pairingReceiver.snapshot().pairingRequests[0]; assert.ok(pending); await pairingReceiver.approvePairRequest(pending.id); }
@@ -109,7 +113,7 @@ try {
   for (const tunnelPort of [port, reconnectPort, pairingPort, new URL(fixture.url).port, control.address().port]) { adb('reverse', `tcp:${tunnelPort}`, `tcp:${tunnelPort}`); tunnels.push(tunnelPort); }
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   const output = await new Promise((resolve, reject) => {
-    const child = spawn(process.env.PAPAN_ADB, [...adbArgs, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'pairLink', quote(pairing.url), '-e', 'shareUrl', quote(`${fixture.url}/wide.png`), '-e', 'controlEndpoint', quote(`http://127.0.0.1:${control.address().port}`), '-e', 'pairEndpoint', quote(`http://127.0.0.1:${pairingPort}`), '-e', 'pairServerId', pairingReceiver.snapshot().serverId, '-e', 'reconnectEndpoint', quote(`http://127.0.0.1:${reconnectPort}`), '-e', 'cameraOnly', String(cameraOnly), `${packageName}/com.papan.share.MobileFlowTest`]);
+    const child = spawn(process.env.PAPAN_ADB, [...adbArgs, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'pairLink', quote(pairing.url), '-e', 'shareUrl', quote(`${fixture.url}/wide.png`), '-e', 'videoPageUrl', quote(`http://127.0.0.1:${control.address().port}/phone-video-page`), '-e', 'controlEndpoint', quote(`http://127.0.0.1:${control.address().port}`), '-e', 'pairEndpoint', quote(`http://127.0.0.1:${pairingPort}`), '-e', 'pairServerId', pairingReceiver.snapshot().serverId, '-e', 'reconnectEndpoint', quote(`http://127.0.0.1:${reconnectPort}`), '-e', 'cameraOnly', String(cameraOnly), `${packageName}/com.papan.share.MobileFlowTest`]);
     let out = ''; child.stdout.on('data', data => { out += data; }); child.stderr.on('data', data => { out += data; });
     const timeout = setTimeout(() => { child.kill(); reject(new Error('Android instrumentation timed out.')); }, 240000);
     child.on('error', error => { clearTimeout(timeout); reject(error); });
