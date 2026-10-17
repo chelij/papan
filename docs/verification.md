@@ -1,5 +1,16 @@
 # Verification
 
+## Mobile video capture and menus (17 October 2026)
+
+Android local source `5082905` (0.3.1/code 5) passes the full native workflow against desktop harness `e3759c8` / runtime 0.3.4 based on `871805a`. The owned Android 16/API 36 headless emulator uses private display 19; all three actual receiver saves complete. A page's MP4 replaces its poster and plays from private storage after the source refuses further downloads. Native overflow actions and vertical/horizontal swipes, current protected session/order/preview/cache/bar behavior, narrow/tablet/200% text and both themes pass. Focused Android pin-menu/location-menu runs pass on private displays 17/27, including popup lifecycle/cancel paths and scrolling to the second location on a 210dp-high window. Native storage/capture checks cover seven video routes plus failure/retention/rollback/cleanup; SDK HTTP/URL and both repository checks pass.
+
+The finished normal APK is `57bcf94fd02dfd6271e99fd490479534ddfc75f7e2095fae02cf0d67dd57738d`; test APK is `78cc5450e3caad52942d329ecd261e18c973981687489e606531d66338f0f606`. Both share 47 identical application classes, 48 exact embedded source/build files and the retained v2/v3 maintainer certificate. The actual native video/menu/location captures were inspected. Phone installation is pending USB; no phone UI was operated. These are local commits, not new published releases.
+
+Two early failures came from the harness querying closing popup windows; a third exposed closing the viewer before its action menu finished dispatching. The native viewer now dismisses menus and posts the selected action after dispatch, and a focused three-cycle copy/details/save regression passes. A fourth attempt hit a randomized rotated QR fixture failure; scanner source remains unchanged and the final unchanged rerun passes all rotations. Attempts remain in `artifacts/android/mobile-video-menus-{first,second,third,fourth}-attempt/`; final reports/captures are `artifacts/android/ui/` and Android `artifacts/{mobile-video-menus,android/pin-menu,android/location-menu}/`.
+
+Receiver/runtime bytes, shared v1 protocols and collection formats remain unchanged. MP4/WebM is bounded to 32 MiB and excludes site-specific/page-script/HLS/DASH/sign-in/DRM extraction; desktop editing/removal/pose stay on desktop. Physical font/performance, optical/Wi-Fi, Android 8/iOS and screen-reader/soft-keyboard limits remain. [Coordinator #11](https://github.com/chelij/papan/issues/11), [Android #7](https://github.com/chelij/papan-android/issues/7).
+
+
 ## Native interaction layout readiness (15 October 2026)
 
 The macOS ARM64 [PR run at `b072080`](https://github.com/chelij/papan/actions/runs/38691855545) failed its first native pin-reordering assertion. The interaction test measured card bounds immediately after switching collections, before the scheduled grid layout. Unpositioned cards overlap, so the recorded destination can point back at the dragged card; an unrelated initial layout also satisfied the old geometry-change assertion. The test now waits for every card's computed layout dimensions before recording its baseline and pointer coordinates. Linux checks also verify the actual private X display before interaction, rather than checking only display `:97`.
