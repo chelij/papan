@@ -1,5 +1,9 @@
 # Verification
 
+## Android location button sizing (17 October 2026)
+
+Android-only follow-up source `07b748e` uses native label/icon measurement to reserve a consistent width for Phone/Desktop/Activity. The exact signed test APK passes API 36/private-display menu checks (24) at 300/360/640dp, 200% text and 30% wider text metrics, plus synchronized scroll and keyboard checks (30). Actual rendered Desktop text is visible in full. The AOSP baseline also passes; Samsung's reported truncation is not physically reproduced. Normal/test common classes (48) and embedded sources (48) match, and v2/v3 signatures verify. Read-back normal APK SHA-256 `4b2c14a1b85fc621f2a781927972b4a377b2afb4a4bddc460c9820e6f6e3072e` matches the in-place Samsung installation; package/data identity is preserved, with a named previous-APK backup. No phone app launch or UI testing occurred. Evidence is Android `artifacts/location-text-width/`; unchanged media, receiver, contracts and platform limits retain the preceding feature's scope. No desktop runtime or release changes.
+
 ## Mobile video capture and menus (17 October 2026)
 
 Android local source `5082905` (0.3.1/code 5) passes the full native workflow against desktop harness `e3759c8` / runtime 0.3.4 based on `871805a`. The owned Android 16/API 36 headless emulator uses private display 19; all three actual receiver saves complete. A page's MP4 replaces its poster and plays from private storage after the source refuses further downloads. Native overflow actions and vertical/horizontal swipes, current protected session/order/preview/cache/bar behavior, narrow/tablet/200% text and both themes pass. Focused Android pin-menu/location-menu runs pass on private displays 17/27, including popup lifecycle/cancel paths and scrolling to the second location on a 210dp-high window. Native storage/capture checks cover seven video routes plus failure/retention/rollback/cleanup; SDK HTTP/URL and both repository checks pass.
