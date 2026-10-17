@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.4 - 2026-10-17
+
+Changes since [v0.3.3](https://github.com/chelij/papan/releases/tag/v0.3.3): [full comparison](https://github.com/chelij/papan/compare/v0.3.3...v0.3.4) · [download the diff](https://github.com/chelij/papan/releases/download/v0.3.4/papan-v0.3.3-to-v0.3.4.diff).
+
+### Fixed
+
+- Keep recovery backups beside saved collections whose filenames have no extension.
+- Accept whitespace around media types before MIME parameters when downloading direct images and videos.
+- Preserve direct-media links with literal percent signs or invalid UTF-8 filename escapes, instead of failing while decoding their titles.
+- Keep commas inside responsive-image URLs when selecting an image from `srcset`.
+- Resolve relative webpage media against the first declared `base[href]`, with the existing HTTP/credential checks and fallback to the page URL. Keep the original page as the pin's source.
+
+### Compatibility and checks
+
+- Ordinary, portable and encrypted collections, pose attachments, receiver protocol v1 and local library protocol v1 remain compatible. Companion reliability releases are Android 0.3.1 and ComfyUI 0.1.5; earlier compatible versions retain their documented support.
+- All 78 desktop tests and native discovery, desktop, organization, app-connection and receiver workflows pass on the tested source. Publication requires fresh source and packaged-app checks on Linux x64, Windows x64 and macOS ARM64, with matching optional pose runtimes.
+- Android virtual checks and Linux ComfyUI saved/live workflows cover the unchanged consumer paths. Optical QR/Wi-Fi, physical performance, Android 8/iOS, Windows/macOS ComfyUI and H3 generation quality retain their existing limits. [Verification](docs/verification.md), [release coordinator](https://github.com/chelij/papan/issues/10).
+
 ## 0.3.3 - 2026-10-16
 
 Changes since [v0.3.2](https://github.com/chelij/papan/releases/tag/v0.3.2).

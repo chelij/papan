@@ -43,11 +43,11 @@ Download the archive for your operating system from [Releases](https://github.co
 
 | Platform | Verification |
 | --- | --- |
-| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.3/Papan-0.3.3-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
-| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.3/Papan-0.3.3-win32-x64.zip) | Release checks use the native Windows runner. |
-| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.3/Papan-0.3.3-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
+| [Linux x64](https://github.com/chelij/papan/releases/download/v0.3.4/Papan-0.3.4-linux-x64.tar.gz) | Release checks target Ubuntu 22.04. |
+| [Windows x64](https://github.com/chelij/papan/releases/download/v0.3.4/Papan-0.3.4-win32-x64.zip) | Release checks use the native Windows runner. |
+| [macOS Apple silicon](https://github.com/chelij/papan/releases/download/v0.3.4/Papan-0.3.4-darwin-arm64.tar.gz) | Release checks use the native macOS ARM64 runner. |
 
-The [v0.3.3 release run](https://github.com/chelij/papan/actions/runs/38928780884) passed native source and packaged-app checks on all three platforms, plus Linux webpage discovery and renderer checks. [Android 0.3.0](https://github.com/chelij/papan-android/releases/tag/v0.3.0) adds phone collections and desktop browsing; [ComfyUI v0.1.4](https://github.com/chelij/comfyui-papan/releases/tag/v0.1.4) retains its existing live connection and saved-file support. The [release workflow](.github/workflows/desktop.yml) gates every desktop package. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Check results and limits](docs/verification.md#v033-and-android-v030-releases).
+The [v0.3.4 release](https://github.com/chelij/papan/releases/tag/v0.3.4) improves webpage capture and collection backups. [Android 0.3.1](https://github.com/chelij/papan-android/releases/tag/v0.3.1) and [ComfyUI v0.1.5](https://github.com/chelij/comfyui-papan/releases/tag/v0.1.5) include companion reliability fixes. The [release workflow](.github/workflows/desktop.yml) gates every desktop package with native source and packaged-app checks on all three platforms, plus Linux webpage discovery and renderer checks. This is an early release. Desktop builds are unsigned; macOS notarization and a Windows signing certificate are not configured. A successful runner check is not a claim of testing every desktop or OS version. [Changelog and previous-release diff](CHANGELOG.md) · [Check results and limits](docs/verification.md#reliability-releases-17-october-2026).
 
 ## Run from source
 
