@@ -31,7 +31,7 @@ const root = await mkdtemp(path.join(os.tmpdir(), 'papan-android-ui-'));
 let fixture, receiver, pairingReceiver, control, installed = false, port, reconnectPort, pairingPort, saves = 0;
 const tunnels = [];
 const artifactDir = path.resolve('artifacts/android/ui'); await mkdir(artifactDir, { recursive: true });
-const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'pin-actions.png', 'remote-video-viewer.png', 'portrait-board.png', 'remote-board-autoplay.png', 'remote-board-fallback.png', 'protected-board-autoplay.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png', 'collection-menu.png', 'location-menu.png', 'location-focus-menu.png', 'location-phone-menu.png', 'location-desktop-menu.png', 'location-activity-menu.png'];
+const screens = ['failure.png', 'local.png', 'remote.png', 'video-board.png', 'video-viewer.png', 'pin-actions.png', 'remote-video-viewer.png', 'portrait-board.png', 'remote-board-autoplay.png', 'remote-menu-paused.png', 'remote-board-fallback.png', 'protected-board-autoplay.png', 'image-viewer.png', 'failed-board.png', 'unpaired.png', 'paired.png', 'nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png', 'narrow.png', 'tablet.png', 'large-text.png', 'style-small.png', 'style-large.png', 'style-light.png', 'style-dark.png', 'style-appearance.png', 'style-large-text.png', 'collection-menu.png', 'location-menu.png', 'location-focus-menu.png', 'location-phone-menu.png', 'location-desktop-menu.png', 'location-activity-menu.png'];
 for (const name of ['report.json', 'instrumentation.txt', ...screens]) await rm(path.join(artifactDir, name), { force: true });
 try {
   fixture = await startFixture();
@@ -126,7 +126,7 @@ try {
   }
   assert.match(output, /INSTRUMENTATION_RESULT: status=passed/, output);
   if (!cameraOnly) for (const name of ['nearby-pairing.png', 'connections-feedback.png', 'connections-large-text.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native pairing/feedback capture missing: ${name}`);
-  if (!cameraOnly) for (const name of ['video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png', 'remote-board-autoplay.png', 'remote-board-fallback.png', 'protected-board-autoplay.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native media capture missing: ${name}`);
+  if (!cameraOnly) for (const name of ['video-viewer.png', 'remote-video-viewer.png', 'portrait-board.png', 'remote-board-autoplay.png', 'remote-menu-paused.png', 'remote-board-fallback.png', 'protected-board-autoplay.png']) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native media capture missing: ${name}`);
   if (process.env.PAPAN_ANDROID_DEMO_ROOT && !cameraOnly) for (const name of screens.filter(name => name.startsWith('style-'))) assert.ok((await readFile(path.join(artifactDir, name))).length > 1000, `Native screenshot missing: ${name}`);
   assert.equal(saves, cameraOnly ? 1 : 3, 'Every chosen desktop destination should produce exactly one save.');
   assert.equal(library.snapshot().pins.filter(pin => pin.collectionId === destination.id).length, 1);
